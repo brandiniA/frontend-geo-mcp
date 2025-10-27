@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "frontend-gps": {
+      "command": "python",
+      "args": ["src/server.py"],
+      "environment": {
+        "dependencies": ["psycopg2-binary", "gitpython"]
+      }
+    }
+  }
+}

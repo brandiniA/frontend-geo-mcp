@@ -1,0 +1,11 @@
+{
+  "projects": {
+    "craftitapp": {
+      "name": "Craftit App",
+      "repository": "https://github.com/brandiniA/craftitapp",
+      "branch": "main",
+      "type": "application"
+    }
+  }
+}
+
