@@ -169,7 +169,7 @@ http://localhost:8080
 
 **Login with these credentials:**
 - **System:** PostgreSQL
-- **Server:** `host.docker.internal` (WSL) or `postgres` (native Linux)
+- **Server:** `postgres`
 - **Username:** `postgres`
 - **Password:** `postgres`
 - **Database:** `frontend_mcp`

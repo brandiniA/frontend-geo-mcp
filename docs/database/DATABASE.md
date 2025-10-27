@@ -76,7 +76,7 @@ Lightweight browser-based database tool - **no installation required**.
 
 **Credentials:**
 - System: PostgreSQL
-- Server: `host.docker.internal` (WSL) or `postgres` (Linux)
+- Server: `postgres`
 - Username: `postgres`
 - Password: `postgres`
 - Database: `frontend_mcp`
