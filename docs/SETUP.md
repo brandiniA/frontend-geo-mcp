@@ -1,462 +1,478 @@
-# Frontend GPS - Setup Guide
+# Setup Guide
 
-Complete guide to set up and run the Frontend GPS MCP Server.
+Complete installation and configuration guide for Frontend GPS.
 
-## 📋 Prerequisites
+## Prerequisites
 
-- Python 3.12+
-- Docker Desktop (for local PostgreSQL)
+- Python 3.12 or higher
+- Docker Desktop
 - Git
-- UV package manager (recommended) or pip
+- [uv](https://github.com/astral-sh/uv) package manager
 
-## 🚀 Quick Start
+## Installation Steps
 
-### 1. Install Dependencies
+### 1. Clone Repository
 
 ```bash
-# Install dependencies with UV
-uv sync
-
-# Or with pip
-pip install -r pyproject.toml
+git clone https://github.com/your-org/frontend-geo-mcp
+cd frontend-geo-mcp
 ```
 
-### 2. Setup Local Database
+### 2. Install Dependencies
 
 ```bash
-# Make script executable
+# Install all project dependencies with uv
+uv sync
+```
+
+This installs:
+- FastMCP 2.13.0+
+- SQLAlchemy 2.0+
+- Alembic (database migrations)
+- PostgreSQL driver (psycopg2)
+- And all other dependencies listed in `pyproject.toml`
+
+### 3. Setup Local Database
+
+```bash
+# Make the setup script executable
 chmod +x scripts/setup_local_db.sh
 
-# Run setup script
+# Run the setup script
 ./scripts/setup_local_db.sh
 ```
 
-This will:
-- Start PostgreSQL in Docker
-- Create the `frontend_mcp` database
-- Run migrations to create tables
+This script will:
+1. Start PostgreSQL container (if Docker is running)
+2. Wait for database to be ready
+3. Apply all Alembic migrations
+4. Start Adminer and pgAdmin containers
+5. Display connection information
 
-### 3. Configure Environment
+**What gets created:**
+- PostgreSQL 15 Alpine container
+- Adminer web UI (port 8080)
+- pgAdmin web UI (port 5050)
+- Database schema with `projects` and `components` tables
+
+### 4. Environment Configuration
 
 ```bash
-# Copy example config
+# Copy environment template
 cp config.env.example .env
-
-# Edit .env with your values
-# For local development, the defaults should work
 ```
 
-**`.env` file:**
+Edit `.env` with your settings:
+
 ```bash
+# Database (defaults work for local dev)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/frontend_mcp
-API_KEY=local-dev-key
-GITHUB_TOKEN=  # Optional, only for private repos
+
+# Temporary directory for cloning repos
 TEMP_DIR=/tmp/mcp-repos
+
+# API Key
+API_KEY=local-dev-key
+
+# GitHub token (optional, for private repos)
+GITHUB_TOKEN=
+
+# Server port
 PORT=8080
 ```
 
-### 4. Test Database Connection
+### 5. Test Database Connection
 
 ```bash
-python scripts/test_local_db.py
+# Test the connection
+uv run python scripts/test_local_db.py
 ```
 
-You should see:
+Expected output:
 ```
-✅ Connected successfully!
-📊 Tables found:
-   - projects: 1 rows
-   - components: 0 rows
+✅ Connected to database with SQLAlchemy
+✅ Database connection test successful!
 ```
 
-### 5. Configure Projects
+### 6. Configure Projects
 
-Edit `.mcp-config.json` to add your projects:
+Edit `.mcp-config.json`:
 
 ```json
 {
   "projects": {
-    "my-app": {
-      "name": "My Application",
-      "repository": "https://github.com/user/my-app",
+    "my-main-app": {
+      "repository": "https://github.com/myorg/main-app",
       "branch": "main",
-      "type": "application"
+      "type": "application",
+      "name": "My Main App"
     },
-    "ui-library": {
-      "name": "UI Component Library",
-      "repository": "https://github.com/company/ui-library",
+    "ui-components": {
+      "repository": "https://github.com/myorg/ui-library",
       "branch": "main",
-      "type": "library"
+      "type": "library",
+      "name": "UI Components Library"
     }
   }
 }
 ```
 
-### 6. Sync Projects
+**Project Types:**
+- `application` - Main app with pages and features
+- `library` - Reusable component library
 
-```bash
-# Sync a specific project
-python scripts/sync_projects.py --project my-app
-
-# Or sync all projects
-python scripts/sync_projects.py --all
-```
-
-### 7. Run MCP Server
-
-```bash
-# Development mode with hot-reload (recommended during development)
-fastmcp dev src/server.py:mcp
-
-# Visual inspector to test tools and debug
-fastmcp inspect src/server.py:mcp
-
-# For Cursor integration (stdio mode - production)
-python src/server.py
-
-# For HTTP testing
-python src/server.py --http
-```
-
-## 🔧 FastMCP CLI Commands
-
-The FastMCP CLI provides several useful commands for development:
-
-### Development Mode
-
-```bash
-# Start server with hot-reload (automatically restarts on file changes)
-fastmcp dev src/server.py:mcp
-
-# Start with verbose logging
-fastmcp dev src/server.py:mcp --verbose
-
-# Run with specific port (for HTTP mode)
-fastmcp dev src/server.py:mcp --transport http --port 8000
-```
-
-### Inspector (Testing UI)
-
-```bash
-# Open visual inspector to test your MCP tools
-fastmcp inspect src/server.py:mcp
-
-# This opens a web interface where you can:
-# - Test each tool with different parameters
-# - See tool responses in real-time
-# - Debug issues interactively
-```
-
-### Direct Python Execution
-
-```bash
-# Standard stdio mode (for Cursor integration)
-python src/server.py
-
-# HTTP mode (for remote testing)
-python src/server.py --http
-```
-
-## 📊 Exploring the Database
+## Database Management
 
 ### Option 1: Adminer Web UI (Recommended for WSL/Linux)
-
-Adminer is a lightweight, browser-based database management tool - no installation needed!
 
 ```
 http://localhost:8080
 ```
 
-**Login with these credentials:**
-- **System:** PostgreSQL
-- **Server:** `postgres`
-- **Username:** `postgres`
-- **Password:** `postgres`
-- **Database:** `frontend_mcp`
+**Login credentials:**
+- System: PostgreSQL
+- Server: `postgres`
+- Username: `postgres`
+- Password: `postgres`
+- Database: `frontend_mcp`
 
 **Features:**
 - Browse tables and data
-- Execute custom SQL queries
-- Export/Import data
-- Simple and intuitive UI
+- Execute SQL queries
+- Export data
+- No installation required (runs in browser)
 
 ### Option 2: pgAdmin Web UI
-
-Full-featured PostgreSQL management tool.
 
 ```
 http://localhost:5050
 ```
 
-**Login with:**
-- **Email:** `admin@example.com`
-- **Password:** `admin`
+**Login credentials:**
+- Email: `admin@example.com`
+- Password: `admin`
 
-Then create a new server connection with PostgreSQL credentials.
+**Features:**
+- Full database management
+- Visual query builder
+- Performance monitoring
 
-### Option 3: Command Line - psql
-
-Direct database access from terminal:
-
-```bash
-# Connect to the database
-docker exec -it frontend-mcp-db psql -U postgres -d frontend_mcp
-
-# Useful psql commands:
-\dt                              # List all tables
-\d components                    # Describe components table structure
-SELECT * FROM projects;          # View all projects
-SELECT * FROM components LIMIT 5; # View first 5 components
-SELECT COUNT(*) FROM components; # Count total components
-SELECT name, component_type FROM components GROUP BY component_type; # Count by type
-\q                              # Exit psql
-```
-
-### Option 4: Python Interactive Explorer
-
-Custom script for easy exploration:
+### Option 3: Command Line
 
 ```bash
-python scripts/explore_db.py
+# Connect to database
+docker exec -it frontend-geo-mcp-db psql -U postgres -d frontend_mcp
+
+# Common queries
+\dt                 # List tables
+\d components       # Describe components table
+SELECT * FROM components LIMIT 5;  # View data
+\q                  # Exit
 ```
 
-This script provides:
-- Interactive menu
-- Search components by name
-- View component details (props, hooks, imports)
-- Project statistics
-- Component count by type
+## Database Migrations with Alembic
 
-## 🔧 Configuration for Cursor
+Alembic manages database schema changes and version control.
 
-Add to your Cursor settings (`.cursor/mcp_settings.json` or global settings):
-
-```json
-{
-  "mcpServers": {
-    "frontend-gps": {
-      "command": "python",
-      "args": ["/absolute/path/to/frontend-geo-mcp/src/server.py"],
-      "env": {
-        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/frontend_mcp",
-        "API_KEY": "local-dev-key"
-      }
-    }
-  }
-}
-```
-
-**Or use the full path from your .env:**
-
-```json
-{
-  "mcpServers": {
-    "frontend-gps": {
-      "command": "python",
-      "args": ["/home/basr/personal/frontend-geo-mcp/src/server.py"]
-    }
-  }
-}
-```
-
-## 📖 Usage Examples
-
-Once configured in Cursor, you can use these commands:
-
-### Find Components
-
-```
-@frontend-gps find_component("Button")
-@frontend-gps find_component("Card", project_id="ui-library")
-```
-
-### Get Component Details
-
-```
-@frontend-gps get_component_details("Button", "ui-library")
-```
-
-### List Components
-
-```
-@frontend-gps list_components()
-@frontend-gps list_components(project_id="my-app")
-@frontend-gps list_components(component_type="page")
-```
-
-### Search by Hook
-
-```
-@frontend-gps search_by_hook("useState")
-@frontend-gps search_by_hook("useEffect")
-```
-
-### Sync Projects
-
-```
-@frontend-gps sync_project("my-app")
-@frontend-gps list_projects()
-@frontend-gps get_stats()
-```
-
-## 🐳 Docker Commands
-
-### Start Database
+### View Migration Status
 
 ```bash
+# Show current database revision
+uv run alembic current
+
+# Show all migrations
+uv run alembic history
+
+# Show detailed info
+uv run alembic history --verbose
+```
+
+### Apply Migrations
+
+```bash
+# Apply all pending migrations to latest
+uv run alembic upgrade head
+
+# Apply next single migration
+uv run alembic upgrade +1
+
+# Apply specific revision
+uv run alembic upgrade abc123def456
+```
+
+### Rollback Migrations
+
+```bash
+# Rollback to previous migration
+uv run alembic downgrade -1
+
+# Rollback multiple versions
+uv run alembic downgrade -2
+
+# Rollback to specific revision
+uv run alembic downgrade abc123def456
+```
+
+### Create New Migrations
+
+When you modify `src/models.py`, create a new migration:
+
+```bash
+# Generate migration automatically
+uv run alembic revision --autogenerate -m "Add new_column to components"
+```
+
+This creates a new file in `migrations/versions/` with:
+- Upgrade function (applying changes)
+- Downgrade function (reverting changes)
+
+Review the migration file, then apply it:
+
+```bash
+uv run alembic upgrade head
+```
+
+### Manual Migration
+
+For complex changes:
+
+```bash
+# Create empty migration
+uv run alembic revision -m "Custom migration"
+
+# Edit migrations/versions/xxxxx_custom_migration.py
+# Add your SQL operations in upgrade() and downgrade()
+
+# Apply it
+uv run alembic upgrade head
+```
+
+## Syncing Projects
+
+### Sync Specific Project
+
+```bash
+# Sync one project
+uv run python scripts/sync_projects.py --project my-main-app
+
+# Output:
+# 🔄 Syncing project: my-main-app
+# 📍 Repository: https://github.com/myorg/main-app
+# 🌿 Branch: main
+# ✅ Connected to database with SQLAlchemy
+# 📥 Cloning https://github.com/myorg/main-app...
+# 🔍 Scanning components...
+# 💾 Saving components...
+# ✅ Sync completed: 42 components saved
+```
+
+### Sync All Projects
+
+```bash
+uv run python scripts/sync_projects.py --all
+```
+
+### Sync from MCP Tools
+
+```bash
+# Using the @frontend-gps sync_project tool
+@frontend-gps sync_project("my-main-app")
+```
+
+## Running MCP Server
+
+### Development Mode
+
+```bash
+# Start with hot-reload
+fastmcp dev src/server.py:mcp
+```
+
+Features:
+- Auto-reloads on code changes
+- Direct stdio connection
+- Good for development
+
+### Inspection Mode
+
+```bash
+# Start with visual inspector
+fastmcp inspect src/server.py:mcp
+```
+
+Open browser to see:
+- Available tools
+- Tool parameters
+- Test tool calls
+- Response formatting
+
+### Production Mode (HTTP)
+
+```bash
+# Start HTTP server
+uv run python src/server.py --http
+```
+
+Then access at:
+- `http://localhost:8080` (check actual PORT from logs)
+
+## Testing
+
+### Test Database Connection
+
+```bash
+uv run python scripts/test_local_db.py
+```
+
+### Explore Database Interactively
+
+```bash
+uv run python scripts/explore_db.py
+```
+
+Allows browsing:
+- All projects
+- All components
+- Components by project
+- Component details
+
+### Test MCP Tools
+
+```bash
+# Start inspection mode
+fastmcp inspect src/server.py:mcp
+
+# Open browser and test each tool:
+# - find_component
+# - get_component_details
+# - search_by_hook
+# - search_by_jsdoc
+# etc.
+```
+
+## Troubleshooting
+
+### Docker Issues
+
+**Problem:** "Cannot connect to Docker daemon"
+
+```bash
+# Make sure Docker Desktop is running
+# Then restart:
+docker-compose down
 docker-compose up -d
 ```
 
-### Stop Database
+**Problem:** Port 5432 already in use
 
 ```bash
-docker-compose down
+# Check what's using port 5432
+lsof -i :5432
+
+# Kill the process or change docker-compose port
 ```
 
-### Reset Database (delete all data)
+### Database Issues
+
+**Problem:** "relation 'components' does not exist"
 
 ```bash
-docker-compose down -v
+# Check migration status
+uv run alembic current
+
+# Apply migrations
+uv run alembic upgrade head
+
+# Or restart setup
 ./scripts/setup_local_db.sh
 ```
 
-### View Logs
+**Problem:** Connection refused to localhost:5432
 
 ```bash
-docker-compose logs -f postgres
+# Make sure PostgreSQL container is running
+docker ps | grep frontend-mcp-db
+
+# If not, start it
+docker-compose up -d postgres
 ```
 
-### Connect to Database
+### Migration Issues
+
+**Problem:** "Alembic revision not found"
 
 ```bash
-docker exec -it frontend-mcp-db psql -U postgres -d frontend_mcp
+# Check available revisions
+uv run alembic history
+
+# Make sure you're in project root directory
+pwd  # Should end with /frontend-geo-mcp
 ```
 
-## 🔍 Troubleshooting
+### MCP Issues
 
-### Database Connection Failed
+**Problem:** "ModuleNotFoundError: No module named 'src'"
 
-1. Check Docker is running:
-   ```bash
-   docker ps
-   ```
+```bash
+# Make sure you're in project root
+cd /path/to/frontend-geo-mcp
 
-2. Restart database:
-   ```bash
-   docker-compose restart
-   ```
+# Reinstall dependencies
+uv sync
 
-3. Check DATABASE_URL in `.env`
-
-### No Components Found
-
-1. Make sure you've synced a project:
-   ```bash
-   python scripts/sync_projects.py --project test-project
-   ```
-
-2. Check project configuration in `.mcp-config.json`
-
-### Import Errors
-
-1. Make sure you're in the project root directory
-2. Check Python path:
-   ```bash
-   python -c "import sys; print(sys.path)"
-   ```
-
-### GitHub Clone Failed
-
-1. For private repos, add GITHUB_TOKEN to `.env`:
-   ```bash
-   GITHUB_TOKEN=ghp_your_token_here
-   ```
-
-2. Generate token at: https://github.com/settings/tokens
-
-## 🚀 Deployment to Railway
-
-### 1. Prepare for Deployment
-
-Make sure these files are in your repo:
-- `Dockerfile`
-- `pyproject.toml`
-- `.mcp-config.json`
-
-### 2. Create Railway Project
-
-1. Go to https://railway.app
-2. Click "New Project"
-3. Select "Deploy from GitHub repo"
-4. Choose your repository
-
-### 3. Configure Environment Variables
-
-In Railway dashboard, add:
-
-```
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-API_KEY=your-production-api-key
-GITHUB_TOKEN=ghp_your_token
-TEMP_DIR=/tmp/mcp-repos
-PORT=8080
+# Try again
+fastmcp dev src/server.py:mcp
 ```
 
-### 4. Add PostgreSQL Database
+**Problem:** Tools not showing in Cursor
 
-1. In Railway, click "New" → "Database" → "PostgreSQL"
-2. Railway will automatically set DATABASE_URL
+```bash
+# Restart MCP server
+# Check for import errors:
+uv run python -c "from src.server import mcp; print('OK')"
 
-### 5. Deploy
-
-Railway will automatically build and deploy using the Dockerfile.
-
-## 📊 Database Schema
-
-### Projects Table
-
-```sql
-CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  repository_url TEXT NOT NULL,
-  branch TEXT DEFAULT 'main',
-  type TEXT CHECK (type IN ('application', 'library')),
-  is_active BOOLEAN DEFAULT true,
-  last_sync TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW()
-);
+# Check models are valid:
+uv run python -c "from src.models import Base; print('OK')"
 ```
 
-### Components Table
+## Next Steps
 
-```sql
-CREATE TABLE components (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  project_id TEXT REFERENCES projects(id),
-  file_path TEXT NOT NULL,
-  props JSONB DEFAULT '[]',
-  hooks JSONB DEFAULT '[]',
-  imports JSONB DEFAULT '[]',
-  exports JSONB DEFAULT '[]',
-  component_type TEXT,
-  description TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+1. **Configure Projects** - Edit `.mcp-config.json` with your repositories
+2. **Sync Components** - Run `uv run python scripts/sync_projects.py --all`
+3. **Explore Data** - Use Adminer at `http://localhost:8080`
+4. **Test Tools** - Run `fastmcp inspect src/server.py:mcp`
+5. **Connect Cursor** - Add MCP server to Cursor's `mcp.json` configuration
+
+## Useful Commands Reference
+
+```bash
+# Development
+uv sync                                    # Install/update dependencies
+fastmcp dev src/server.py:mcp             # Run in development mode
+fastmcp inspect src/server.py:mcp         # Run with inspector
+
+# Database
+./scripts/setup_local_db.sh                # Initialize database
+uv run alembic upgrade head                # Apply migrations
+uv run alembic downgrade -1                # Rollback migration
+uv run python scripts/test_local_db.py     # Test connection
+
+# Projects
+uv run python scripts/sync_projects.py --project <id>  # Sync one project
+uv run python scripts/sync_projects.py --all           # Sync all projects
+uv run python scripts/explore_db.py                    # Browse database
+
+# Docker
+docker-compose up -d                       # Start services
+docker-compose down                        # Stop services
+docker-compose logs -f postgres            # View logs
+docker-compose down -v                     # Reset everything
 ```
 
-## 🔐 Security Notes
+## Support
 
-- Never commit `.env` file (it's in `.gitignore`)
-- Use strong passwords for production databases
-- Rotate API keys regularly
-- Use GitHub tokens with minimal required permissions
-
-## 📚 Additional Resources
-
-- [FastMCP Documentation](https://github.com/jlowin/fastmcp)
-- [MCP Protocol Specification](https://modelcontextprotocol.io)
-- [Railway Documentation](https://docs.railway.app)
-
+For issues or questions:
+1. Check the [Architecture Guide](architecture/ARCHITECTURE.md)
+2. Review the [Database Reference](database/DATABASE.md)
+3. Check the [Tools Documentation](tools/TOOLS.md)
+4. Open a GitHub issue with details

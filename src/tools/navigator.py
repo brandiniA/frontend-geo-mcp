@@ -90,7 +90,7 @@ class ComponentNavigator:
             project_id: ID del proyecto
             
         Returns:
-            Detalles formateados en markdown
+            Detalles formateados en markdown con JSDoc completo
         """
         components = await self.db.search_components(component_name, project_id)
         
@@ -122,8 +122,47 @@ class ComponentNavigator:
         
         response += "\n"
         
-        # Props
-        if comp['props']:
+        # JSDoc completo si está disponible
+        jsdoc = comp.get('jsdoc')
+        if jsdoc:
+            # Descripción extendida
+            if jsdoc.get('description'):
+                response += f"### 📝 Overview\n{jsdoc['description']}\n\n"
+            
+            # Parámetros
+            if jsdoc.get('params'):
+                response += "### 📥 Parameters\n"
+                for param in jsdoc['params']:
+                    response += f"- **`{param['name']}`** (`{param['type']}`): {param['description']}\n"
+                response += "\n"
+            
+            # Returns
+            if jsdoc.get('returns'):
+                returns = jsdoc['returns']
+                response += f"### 📤 Returns\n**Type:** `{returns['type']}`\n"
+                if returns['description']:
+                    response += f"**Description:** {returns['description']}\n"
+                response += "\n"
+            
+            # Ejemplos
+            if jsdoc.get('examples'):
+                response += "### 💡 Examples\n"
+                for i, example in enumerate(jsdoc['examples'], 1):
+                    response += f"**Example {i}:**\n```tsx\n{example}\n```\n"
+                response += "\n"
+            
+            # Información adicional
+            if jsdoc.get('deprecated'):
+                response += "⚠️ **DEPRECATED** - This component is deprecated\n\n"
+            
+            if jsdoc.get('author'):
+                response += f"👤 **Author:** {jsdoc['author']}\n"
+            
+            if jsdoc.get('version'):
+                response += f"📌 **Version:** {jsdoc['version']}\n"
+        
+        # Props (si no están en JSDoc)
+        if comp['props'] and not (jsdoc and jsdoc.get('params')):
             response += "### 📦 Props\n"
             for prop in comp['props']:
                 response += f"- `{prop}`\n"
@@ -145,31 +184,25 @@ class ComponentNavigator:
                 response += f"- ... and {len(comp['imports']) - 10} more\n"
             response += "\n"
         
-        # Exports
-        if comp['exports']:
-            response += "### 📤 Exports\n"
-            for exp in comp['exports']:
-                response += f"- `{exp}`\n"
-            response += "\n"
-        
-        # Usage example
-        response += "### 💡 Usage Example\n"
-        response += "```tsx\n"
-        
-        import_path = self._generate_import_path(comp)
-        response += f"import {{ {comp['name']} }} from '{import_path}';\n\n"
-        
-        if comp['props']:
-            response += f"<{comp['name']}\n"
-            for prop in comp['props'][:3]:
-                response += f"  {prop}={{/* value */}}\n"
-            if len(comp['props']) > 3:
-                response += f"  // ... and {len(comp['props']) - 3} more props\n"
-            response += "/>\n"
-        else:
-            response += f"<{comp['name']} />\n"
-        
-        response += "```\n"
+        # Usage example (si no hay en JSDoc)
+        if not (jsdoc and jsdoc.get('examples')):
+            response += "### 💡 Basic Usage\n"
+            response += "```tsx\n"
+            
+            import_path = self._generate_import_path(comp)
+            response += f"import {{ {comp['name']} }} from '{import_path}';\n\n"
+            
+            if comp['props']:
+                response += f"<{comp['name']}\n"
+                for prop in comp['props'][:3]:
+                    response += f"  {prop}={{/* value */}}\n"
+                if len(comp['props']) > 3:
+                    response += f"  // ... and {len(comp['props']) - 3} more props\n"
+                response += "/>\n"
+            else:
+                response += f"<{comp['name']} />\n"
+            
+            response += "```\n"
         
         return response
     
@@ -258,6 +291,167 @@ class ComponentNavigator:
         
         if len(matching) > 20:
             response += f"\n... and {len(matching) - 20} more\n"
+        
+        return response
+    
+    async def search_by_jsdoc(self, query: str, project_id: Optional[str] = None) -> str:
+        """
+        Busca componentes por términos en su JSDoc.
+        
+        Args:
+            query: Término de búsqueda (ej: description, param name, return type)
+            project_id: Filtrar por proyecto (opcional)
+            
+        Returns:
+            Lista de componentes que coinciden con el término
+        """
+        # Obtener componentes (todos o de un proyecto específico)
+        if project_id:
+            components = await self.db.get_components_by_project(project_id)
+        else:
+            components = await self.db.get_all_components()
+        
+        matching = []
+        query_lower = query.lower()
+        
+        for c in components:
+            if not c.get('jsdoc'):
+                continue
+            
+            jsdoc = c['jsdoc']
+            
+            # Buscar en descripción
+            if jsdoc.get('description', '').lower().find(query_lower) != -1:
+                matching.append((c, 'description'))
+                continue
+            
+            # Buscar en parámetros
+            for param in jsdoc.get('params', []):
+                if (query_lower in param.get('name', '').lower() or
+                    query_lower in param.get('description', '').lower() or
+                    query_lower in param.get('type', '').lower()):
+                    matching.append((c, f"param: {param['name']}"))
+                    break
+            else:
+                # Buscar en returns
+                returns = jsdoc.get('returns', {})
+                if returns and (query_lower in returns.get('description', '').lower() or
+                               query_lower in returns.get('type', '').lower()):
+                    matching.append((c, 'returns'))
+                    continue
+                
+                # Buscar en ejemplos
+                for example in jsdoc.get('examples', []):
+                    if query_lower in example.lower():
+                        matching.append((c, 'example'))
+                        break
+        
+        if not matching:
+            return f"❌ No components found with JSDoc matching '{query}'"
+        
+        response = f"🔍 Found {len(matching)} component(s) with '{query}' in documentation:\n\n"
+        
+        # Agrupar por proyecto
+        by_project = {}
+        for comp, match_type in matching:
+            pid = comp['project_id']
+            if pid not in by_project:
+                by_project[pid] = []
+            by_project[pid].append((comp, match_type))
+        
+        # Formatear respuesta
+        for pid, comps in by_project.items():
+            response += f"### 📦 {pid}\n"
+            
+            for comp, match_type in comps[:10]:
+                response += f"- **{comp['name']}** ({match_type})\n"
+                response += f"  📄 `{comp['file_path']}`\n"
+            
+            if len(comps) > 10:
+                response += f"- ... and {len(comps) - 10} more\n"
+            
+            response += "\n"
+        
+        return response
+    
+    async def get_component_docs(
+        self,
+        component_name: str,
+        project_id: str
+    ) -> str:
+        """
+        Obtiene la documentación JSDoc completa de un componente.
+        Muestra parámetros, returns, ejemplos, autor, versión, deprecated.
+        
+        Args:
+            component_name: Nombre del componente
+            project_id: ID del proyecto
+            
+        Returns:
+            Documentación formateada en markdown
+        """
+        components = await self.db.search_components(component_name, project_id)
+        
+        if not components:
+            return f"❌ Component '{component_name}' not found in project '{project_id}'"
+        
+        # Tomar el primer match exacto
+        comp = None
+        for c in components:
+            if c['name'] == component_name:
+                comp = c
+                break
+        
+        if not comp:
+            comp = components[0]
+        
+        jsdoc = comp.get('jsdoc')
+        
+        if not jsdoc:
+            return f"⚠️  No JSDoc documentation found for '{component_name}'\n\nTry to add JSDoc comments to your component."
+        
+        response = f"## 📚 Documentation: {comp['name']}\n\n"
+        response += f"**File:** `{comp['file_path']}`\n"
+        response += f"**Project:** {project_id}\n\n"
+        
+        # Descripción principal
+        if jsdoc.get('description'):
+            response += f"### 📝 Overview\n{jsdoc['description']}\n\n"
+        
+        # Parámetros
+        if jsdoc.get('params'):
+            response += "### 📥 Parameters\n"
+            for param in jsdoc['params']:
+                response += f"- **`{param['name']}`** (`{param['type']}`)\n"
+                if param.get('description'):
+                    response += f"  {param['description']}\n"
+            response += "\n"
+        
+        # Returns
+        if jsdoc.get('returns'):
+            returns = jsdoc['returns']
+            response += "### 📤 Returns\n"
+            response += f"**Type:** `{returns['type']}`\n"
+            if returns.get('description'):
+                response += f"**Description:** {returns['description']}\n"
+            response += "\n"
+        
+        # Ejemplos
+        if jsdoc.get('examples'):
+            response += "### 💡 Examples\n"
+            for i, example in enumerate(jsdoc['examples'], 1):
+                response += f"**Example {i}:**\n```tsx\n{example}\n```\n"
+            response += "\n"
+        
+        # Información adicional
+        if jsdoc.get('deprecated'):
+            response += "⚠️ **DEPRECATED** - This component is deprecated\n\n"
+        
+        if jsdoc.get('author'):
+            response += f"👤 **Author:** {jsdoc['author']}\n"
+        
+        if jsdoc.get('version'):
+            response += f"📌 **Version:** {jsdoc['version']}\n"
         
         return response
     

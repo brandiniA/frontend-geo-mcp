@@ -61,7 +61,7 @@ async def sync_project(project_id: str):
         })
         
         # Sincronizar
-        await indexer.index_remote_repository(
+        result = await indexer.index_project(
             project_id,
             project['repository'],
             project.get('branch', 'main')

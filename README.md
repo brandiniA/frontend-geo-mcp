@@ -6,12 +6,14 @@ MCP (Model Context Protocol) server that indexes React components from GitHub re
 
 ## ✨ Features
 
-- 🔍 **Component Search**: Find React components across multiple projects
-- 📦 **Props & Hooks Detection**: Automatically extract component props and hooks
-- 🏢 **Multi-Project Support**: Index and search across multiple repositories
+- 🔍 **Component Search**: Find React components across multiple projects by name
+- 📚 **JSDoc Documentation**: Extract and search component documentation
+- 📦 **Props & Hooks Detection**: Automatically extract component props and React hooks
+- 🏢 **Multi-Project Support**: Index and search across multiple repositories simultaneously
 - 🔄 **Auto-Sync**: Clone and index repositories from GitHub
-- 💾 **PostgreSQL Backend**: Fast and reliable component database
+- 💾 **PostgreSQL Backend**: Fast and reliable component database with SQLAlchemy ORM
 - 🚀 **MCP Integration**: Native integration with Cursor AI
+- 📝 **Version Control**: Database migrations with Alembic
 
 ## 📋 Requirements
 
@@ -20,28 +22,66 @@ MCP (Model Context Protocol) server that indexes React components from GitHub re
 - [uv](https://github.com/astral-sh/uv) package manager
 - Git
 
+## 📦 Tech Stack
+
+- **FastMCP 2.13.0+** - MCP server framework
+- **SQLAlchemy 2.0+** - ORM for database operations
+- **Pydantic 2.0+** - Data validation
+- **Alembic** - Database migrations
+- **PostgreSQL 15** - Database engine
+- **Python 3.12** - Runtime
+
 ## Estructura del Proyecto
 
 ```
 frontend-geo-mcp/
 ├── src/
 │   ├── __init__.py
-│   ├── server.py           # Entry point principal
+│   ├── server.py              # MCP Server entry point
+│   ├── models.py              # SQLAlchemy + Pydantic models
 │   ├── tools/
 │   │   ├── __init__.py
-│   │   ├── navigator.py    # Herramientas de navegación
-│   │   ├── validator.py    # Validación de código
-│   │   └── guide.py        # Guía de proyecto
+│   │   ├── navigator.py       # Component search and navigation
+│   │   ├── validator.py       # Code validation tools
+│   │   └── guide.py           # Project guidance
+│   ├── registry/
+│   │   ├── __init__.py
+│   │   ├── database_client.py # Database ORM client
+│   │   └── backup.database_client.py # Legacy backup
 │   ├── utils/
 │   │   ├── __init__.py
-│   │   ├── indexer.py      # Indexación de componentes
-│   │   ├── cache.py        # Sistema de cache
-│   │   └── parser.py       # Parser de código React
+│   │   ├── indexer.py         # Repository indexing
+│   │   ├── parser.py          # React component parser
+│   │   └── cache.py           # Caching system
 │   └── config/
-│       └── rules.py        # Reglas de validación
-├── pyproject.toml
-├── uv.lock
-├── README.md
+│       └── rules.py           # Validation rules
+├── scripts/
+│   ├── setup_local_db.sh      # Database initialization
+│   ├── test_local_db.py       # Connection test
+│   ├── sync_projects.py       # Manual project sync
+│   └── explore_db.py          # Database explorer
+├── migrations/                # Alembic database migrations
+│   ├── env.py                 # Migration environment config
+│   ├── versions/
+│   │   └── 001_initial_schema.py
+│   └── README
+├── database/                  # Database configuration
+│   └── README.md
+├── docs/                      # Documentation
+│   ├── index.md               # Documentation portal
+│   ├── SETUP.md               # Setup guide
+│   ├── database/
+│   │   └── DATABASE.md        # Database reference
+│   ├── tools/
+│   │   └── TOOLS.md           # Tools documentation
+│   └── architecture/
+│       └── ARCHITECTURE.md    # Architecture guide
+├── pyproject.toml             # Python dependencies
+├── alembic.ini                # Alembic config
+├── docker-compose.yml         # Docker services
+├── Dockerfile                 # Production Docker image
+├── fastmcp.json               # FastMCP configuration
+└── .mcp-config.json           # Project configuration
 ```
 
 ## 🚀 Quick Start
@@ -63,9 +103,15 @@ uv sync
 # Make setup script executable
 chmod +x scripts/setup_local_db.sh
 
-# Run database setup
+# Run database setup (starts PostgreSQL, applies Alembic migrations)
 ./scripts/setup_local_db.sh
 ```
+
+This will:
+- Start PostgreSQL container
+- Apply Alembic migrations automatically
+- Create all necessary tables
+- Start Adminer and pgAdmin services
 
 ### 3. Configure Environment
 
@@ -74,23 +120,47 @@ chmod +x scripts/setup_local_db.sh
 cp config.env.example .env
 
 # Edit .env with your values (defaults work for local development)
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/frontend_mcp
 ```
 
 ### 4. Test Connection
 
 ```bash
-python scripts/test_local_db.py
+uv run python scripts/test_local_db.py
 ```
 
-### 5. Sync a Project
+### 5. Configure Projects
+
+Edit `.mcp-config.json`:
+
+```json
+{
+  "projects": {
+    "my-app": {
+      "repository": "https://github.com/user/my-app",
+      "branch": "main",
+      "type": "application"
+    },
+    "ui-library": {
+      "repository": "https://github.com/user/ui-library",
+      "branch": "main",
+      "type": "library"
+    }
+  }
+}
+```
+
+### 6. Sync Projects
 
 ```bash
-# Edit .mcp-config.json with your projects
-# Then sync:
-python scripts/sync_projects.py --project test-project
+# Sync specific project
+uv run python scripts/sync_projects.py --project my-app
+
+# Sync all projects
+uv run python scripts/sync_projects.py --all
 ```
 
-### 6. Run MCP Server
+### 7. Run MCP Server
 
 ```bash
 # Development mode with hot-reload
@@ -99,79 +169,13 @@ fastmcp dev src/server.py:mcp
 # Visual inspector for testing tools
 fastmcp inspect src/server.py:mcp
 
-# For Cursor integration (stdio mode)
-python src/server.py
-
-# For HTTP testing
-python src/server.py --http
+# Production mode (HTTP)
+uv run python src/server.py --http
 ```
 
-## 📖 Full Documentation
+## 🗄️ Database Management
 
-- **[Complete Setup Guide](docs/SETUP.md)** - Detailed installation and configuration
-- **[Custom Commands](docs/COMANDOS_PERSONALIZADOS.md)** - Helper commands for development
-
-## 🔧 Configuration for Cursor
-
-Add to your Cursor MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "frontend-gps": {
-      "command": "python",
-      "args": ["/absolute/path/to/frontend-geo-mcp/src/server.py"],
-      "env": {
-        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/frontend_mcp",
-        "API_KEY": "local-dev-key"
-      }
-    }
-  }
-}
-```
-
-## 💡 Usage Examples
-
-Once configured in Cursor:
-
-```
-@frontend-gps find_component("Button")
-@frontend-gps get_component_details("Button", "ui-library")
-@frontend-gps list_components(component_type="page")
-@frontend-gps search_by_hook("useState")
-@frontend-gps sync_project("my-app")
-@frontend-gps get_stats()
-```
-
-## 🛠️ Available Tools
-
-- `find_component(query, project_id?)` - Search for components
-- `get_component_details(name, project_id)` - Get detailed component info
-- `list_components(project_id?, type?)` - List all components
-- `search_by_hook(hook_name)` - Find components using a specific hook
-- `sync_project(project_id)` - Sync a project from GitHub
-- `list_projects()` - List all configured projects
-- `get_stats()` - Get indexing statistics
-
-## 🐳 Docker Commands
-
-```bash
-# Start database and tools
-docker-compose up -d
-
-# Stop database
-docker-compose down
-
-# Reset database (delete all data)
-docker-compose down -v && ./scripts/setup_local_db.sh
-
-# View logs
-docker-compose logs -f postgres
-```
-
-## 📊 Explore Database
-
-### Web UI - Adminer (Recommended for WSL/Linux)
+### Adminer Web UI (Recommended)
 
 ```
 http://localhost:8080
@@ -184,65 +188,286 @@ http://localhost:8080
 - Password: `postgres`
 - Database: `frontend_mcp`
 
-### Web UI - pgAdmin
+### pgAdmin Alternative
 
 ```
 http://localhost:5050
 ```
 
-**Login credentials:**
+**Credentials:**
 - Email: `admin@example.com`
 - Password: `admin`
 
-### Command Line - psql
+### CLI Access
 
 ```bash
 docker exec -it frontend-mcp-db psql -U postgres -d frontend_mcp
-
-# Useful commands:
-\dt                      # List tables
-SELECT * FROM projects;  # View projects
-SELECT * FROM components LIMIT 5; # View components
-\q                      # Exit
 ```
 
-### Python Script - Interactive Explorer
+## 🔄 Database Migrations (Alembic)
+
+### View Migration Status
 
 ```bash
-python scripts/explore_db.py
+# Show current revision
+uv run alembic current
+
+# Show all revisions
+uv run alembic history
 ```
 
-## 🚀 Deployment
+### Apply Migrations
 
-See [SETUP.md](docs/SETUP.md) for deployment instructions to Railway or Render.
+```bash
+# Apply all pending migrations
+uv run alembic upgrade head
 
-## 📁 Project Structure
-
-```
-frontend-geo-mcp/
-├── src/
-│   ├── server.py              # MCP Server entry point
-│   ├── tools/
-│   │   └── navigator.py       # Component navigation tools
-│   ├── utils/
-│   │   ├── parser.py          # React component parser
-│   │   └── indexer.py         # Repository indexer
-│   └── registry/
-│       └── database_client.py # PostgreSQL client
-├── scripts/
-│   ├── setup_local_db.sh      # Database setup script
-│   ├── test_local_db.py       # Connection test
-│   └── sync_projects.py       # Manual sync script
-├── database/migrations/       # Database schema
-├── docker-compose.yml         # Local PostgreSQL
-├── Dockerfile                 # Production deployment
-└── .mcp-config.json          # Project configuration
+# Apply specific migration
+uv run alembic upgrade +1
 ```
 
-## 🤝 Contributing
+### Rollback Migrations
 
-Contributions are welcome! Please read the setup guide and ensure all tests pass before submitting a PR.
+```bash
+# Rollback last migration
+uv run alembic downgrade -1
+
+# Rollback to specific revision
+uv run alembic downgrade 001
+```
+
+### Create New Migration
+
+When you modify `src/models.py`:
+
+```bash
+# Auto-generate migration
+uv run alembic revision --autogenerate -m "Add new_field to Component"
+
+# Review the generated migration file in migrations/versions/
+
+# Apply it
+uv run alembic upgrade head
+```
+
+## 📚 MCP Tools
+
+### Search Tools
+
+- **`find_component`** - Find components by name
+  ```
+  @frontend-gps find_component("Button")
+  @frontend-gps find_component("Button", project_id="ui-library")
+  ```
+
+- **`search_by_hook`** - Find components using specific hooks
+  ```
+  @frontend-gps search_by_hook("useState")
+  @frontend-gps search_by_hook("useEffect")
+  ```
+
+- **`search_by_jsdoc`** - Search documentation
+  ```
+  @frontend-gps search_by_jsdoc("click handler")
+  @frontend-gps search_by_jsdoc("validation", project_id="ui-library")
+  ```
+
+### Detail Tools
+
+- **`get_component_details`** - Get component metadata
+  ```
+  @frontend-gps get_component_details("Button", "ui-library")
+  ```
+
+- **`get_component_docs`** - Get full JSDoc documentation
+  ```
+  @frontend-gps get_component_docs("Button", "ui-library")
+  ```
+
+### Browse Tools
+
+- **`list_components`** - List all indexed components
+  ```
+  @frontend-gps list_components()
+  @frontend-gps list_components(project_id="ui-library")
+  ```
+
+- **`list_projects`** - Show all configured projects
+  ```
+  @frontend-gps list_projects()
+  ```
+
+### Admin Tools
+
+- **`sync_project`** - Manually sync a project
+  ```
+  @frontend-gps sync_project("my-app")
+  ```
+
+- **`get_stats`** - View indexing statistics
+  ```
+  @frontend-gps get_stats()
+  ```
+
+## 🐳 Docker
+
+### Local Development
+
+```bash
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f postgres
+
+# Stop services
+docker-compose down
+
+# Reset everything (careful!)
+docker-compose down -v
+```
+
+### Database Container
+
+The PostgreSQL container:
+- Persists data in `postgres_data` volume
+- Exposes port 5432
+- Includes health checks
+- Auto-applies Alembic migrations on startup
+
+## 🚢 Deployment
+
+### Railway/Render
+
+1. Create PostgreSQL database
+2. Set `DATABASE_URL` environment variable
+3. Deploy with:
+   ```bash
+   uv run python src/server.py --http
+   ```
+
+### Dockerfile
+
+```bash
+docker build -t frontend-geo-mcp:latest .
+docker run -e DATABASE_URL=... frontend-geo-mcp:latest
+```
+
+## 📖 Documentation
+
+See the comprehensive guides in `/docs`:
+
+- **[Setup Guide](docs/SETUP.md)** - Detailed installation and configuration
+- **[Database Reference](docs/database/DATABASE.md)** - Schema and queries
+- **[Tools Documentation](docs/tools/TOOLS.md)** - Complete tools reference
+- **[Architecture Guide](docs/architecture/ARCHITECTURE.md)** - System design
+- **[Documentation Index](docs/index.md)** - All documentation
+
+## 🛠️ Development
+
+### Project Structure
+
+**ORM & Models:**
+- `src/models.py` - SQLAlchemy models with Pydantic validation
+
+**Database:**
+- `src/registry/database_client.py` - Async-compatible database client using SQLAlchemy
+- `migrations/` - Alembic version control for schema changes
+
+**Indexing:**
+- `src/utils/parser.py` - React component JSDoc parser
+- `src/utils/indexer.py` - Repository cloning and component extraction
+
+**Tools:**
+- `src/tools/navigator.py` - Search and navigation tools
+- `src/server.py` - FastMCP server with tool definitions
+
+### Testing
+
+```bash
+# Test database connection
+uv run python scripts/test_local_db.py
+
+# Explore database
+uv run python scripts/explore_db.py
+
+# Test MCP tools
+fastmcp inspect src/server.py:mcp
+```
+
+## 🐛 Troubleshooting
+
+### Database Connection Failed
+
+```bash
+# Check if PostgreSQL is running
+docker ps | grep frontend-mcp-db
+
+# Check logs
+docker-compose logs postgres
+
+# Restart containers
+docker-compose restart
+```
+
+### Migration Issues
+
+```bash
+# Check migration status
+uv run alembic current
+
+# View migration history
+uv run alembic history
+
+# Rollback if needed
+uv run alembic downgrade -1
+```
+
+### MCP Not Loading Tools
+
+```bash
+# Restart MCP server
+fastmcp dev src/server.py:mcp
+
+# Check for import errors
+uv run python -c "from src.server import mcp; print(mcp)"
+```
+
+## 📝 Environment Variables
+
+```bash
+# Database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/frontend_mcp
+
+# Temporary directory for cloned repos
+TEMP_DIR=/tmp/mcp-repos
+
+# API Key (local development)
+API_KEY=local-dev-key
+
+# GitHub (optional, for private repos)
+GITHUB_TOKEN=
+
+# Server
+PORT=8080
+```
 
 ## 📄 License
 
-MIT License - see LICENSE file for details
+MIT
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📧 Support
+
+For issues and questions, please open a GitHub issue.
+
+---

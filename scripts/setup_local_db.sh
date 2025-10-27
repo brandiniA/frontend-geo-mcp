@@ -24,13 +24,13 @@ done
 
 echo "✅ PostgreSQL is ready!"
 
-# Ejecutar migrations
-echo "📝 Running migrations..."
-if [ -f "database/migrations/001_initial_schema.sql" ]; then
-    docker exec -i frontend-mcp-db psql -U postgres -d frontend_mcp < database/migrations/001_initial_schema.sql
-    echo "✅ Migrations executed successfully!"
+# Ejecutar Alembic migrations
+echo "📝 Running Alembic migrations..."
+if ! uv run alembic upgrade head > /dev/null 2>&1; then
+    echo "⚠️  Warning: Alembic migrations may have issues"
+    echo "   Try running manually: uv run alembic upgrade head"
 else
-    echo "⚠️  Migration file not found. Please create database/migrations/001_initial_schema.sql"
+    echo "✅ Alembic migrations executed successfully!"
 fi
 
 echo ""
@@ -47,7 +47,11 @@ echo "🔗 Connection string:"
 echo "   postgresql://postgres:postgres@localhost:5432/frontend_mcp"
 echo ""
 echo "📝 Next steps:"
-echo "   1. Copy .env.example to .env"
-echo "   2. Update DATABASE_URL in .env"
-echo "   3. Run: python scripts/test_local_db.py"
-
+echo "   1. Copy .env.example to .env (if not already done)"
+echo "   2. Run: uv run python scripts/test_local_db.py"
+echo ""
+echo "📚 Alembic commands:"
+echo "   uv run alembic upgrade head       # Apply migrations"
+echo "   uv run alembic downgrade -1       # Rollback last migration"
+echo "   uv run alembic current            # Show current revision"
+echo "   uv run alembic history            # Show all revisions"

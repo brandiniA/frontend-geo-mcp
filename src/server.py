@@ -97,6 +97,36 @@ async def search_by_hook(
     return await navigator.search_by_hook(hook_name)
 
 
+@mcp.tool
+async def search_by_jsdoc(
+    query: Annotated[str, "Search term in JSDoc documentation"],
+    project_id: Annotated[Optional[str], "Filter by project"] = None
+) -> str:
+    """
+    Find components by searching their JSDoc documentation.
+    Searches in descriptions, parameters, return types, and examples.
+    
+    Example: search_by_jsdoc("click handler")
+    Example: search_by_jsdoc("form validation", project_id="ui-library")
+    """
+    return await navigator.search_by_jsdoc(query, project_id)
+
+
+@mcp.tool
+async def get_component_docs(
+    component_name: Annotated[str, "Component name"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get the complete JSDoc documentation for a component.
+    Includes parameters, return types, examples, author, version, deprecation status.
+    
+    Example: get_component_docs("Button", "ui-library")
+    Example: get_component_docs("Header", "main-app")
+    """
+    return await navigator.get_component_docs(component_name, project_id)
+
+
 # ============================================
 # 🔄 SYNC TOOLS
 # ============================================
@@ -128,7 +158,7 @@ async def sync_project(
         })
         
         # Indexar
-        await indexer.index_remote_repository(project_id, repo_url, branch)
+        await indexer.index_project(project_id, repo_url, branch)
         
         # Obtener conteo
         count = await db_client.get_component_count(project_id)

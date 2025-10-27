@@ -33,6 +33,7 @@ class ReactParser:
     def extract_component_info(self, file_content: str, file_path: str) -> List[Dict]:
         """
         Extrae información de componentes de un archivo React.
+        Ahora incluye documentación JSDoc completa.
         
         Args:
             file_content: Contenido del archivo
@@ -60,6 +61,9 @@ class ReactParser:
                 
                 seen_components.add(component_name)
                 
+                # Extraer documentación JSDoc completa
+                jsdoc = self._extract_jsdoc(file_content, component_name)
+                
                 component_info = {
                     'name': component_name,
                     'file_path': file_path,
@@ -69,6 +73,7 @@ class ReactParser:
                     'exports': self._extract_exports(file_content),
                     'component_type': self._determine_type(file_path),
                     'description': self._extract_description(file_content, component_name),
+                    'jsdoc': jsdoc,  # ✅ Nueva: Documentación JSDoc completa
                 }
                 
                 components.append(component_info)
@@ -168,6 +173,100 @@ class ReactParser:
             return description[:200]
         
         return None
+    
+    def _extract_jsdoc(self, content: str, component_name: str) -> Optional[Dict]:
+        """
+        Extrae documentación JSDoc completa incluyendo @param, @returns, @example, etc.
+        
+        Returns:
+            Dict con estructura:
+            {
+                "description": "...",
+                "params": [{"name": "...", "type": "...", "description": "..."}],
+                "returns": {"type": "...", "description": "..."},
+                "examples": ["...", "..."],
+                "deprecated": boolean,
+                "tags": {...}
+            }
+        """
+        # Patrón para JSDoc completo
+        jsdoc_pattern = r'/\*\*\s*([\s\S]*?)\*/'
+        match = re.search(jsdoc_pattern, content)
+        
+        if not match:
+            return None
+        
+        jsdoc_text = match.group(1)
+        
+        # Validar que pertenece al componente (debe estar cerca)
+        component_check = rf'/\*\*.*?(?:export\s+)?(?:default\s+)?(?:function|const)\s+{component_name}'
+        if not re.search(component_check, content, re.DOTALL):
+            return None
+        
+        result = {}
+        
+        # Extraer descripción principal
+        desc_lines = []
+        for line in jsdoc_text.split('\n'):
+            line = line.strip().lstrip('*').strip()
+            if line and not line.startswith('@'):
+                desc_lines.append(line)
+            elif line.startswith('@'):
+                break
+        
+        if desc_lines:
+            result['description'] = ' '.join(desc_lines)
+        
+        # Extraer @param tags
+        params = []
+        param_pattern = r'@param\s+(?:\{([^}]+)\})?\s+(\w+)\s*-?\s*([^\n]*)'
+        for param_match in re.finditer(param_pattern, jsdoc_text):
+            params.append({
+                'type': param_match.group(1) or 'unknown',
+                'name': param_match.group(2),
+                'description': param_match.group(3).strip()
+            })
+        if params:
+            result['params'] = params
+        
+        # Extraer @returns
+        returns_pattern = r'@returns?\s+(?:\{([^}]+)\})?\s*-?\s*([^\n]*)'
+        returns_match = re.search(returns_pattern, jsdoc_text)
+        if returns_match:
+            result['returns'] = {
+                'type': returns_match.group(1) or 'JSX.Element',
+                'description': returns_match.group(2).strip()
+            }
+        
+        # Extraer @example
+        examples = []
+        example_pattern = r'@example\s+([\s\S]*?)(?=@\w+|$)'
+        for example_match in re.finditer(example_pattern, jsdoc_text):
+            example_code = example_match.group(1).strip()
+            # Limpiar asteriscos y espacios
+            example_code = '\n'.join(
+                line.lstrip('*').strip() for line in example_code.split('\n')
+                if line.strip() and not line.strip().startswith('@')
+            )
+            if example_code:
+                examples.append(example_code)
+        if examples:
+            result['examples'] = examples
+        
+        # Extraer otros tags útiles
+        result['deprecated'] = bool(re.search(r'@deprecated', jsdoc_text))
+        result['author'] = None
+        result['version'] = None
+        
+        author_match = re.search(r'@author\s+([^\n]+)', jsdoc_text)
+        if author_match:
+            result['author'] = author_match.group(1).strip()
+        
+        version_match = re.search(r'@version\s+([^\n]+)', jsdoc_text)
+        if version_match:
+            result['version'] = version_match.group(1).strip()
+        
+        return result if result else None
 
 
 # Función de utilidad para testing

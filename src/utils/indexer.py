@@ -8,8 +8,15 @@ import shutil
 from pathlib import Path
 from typing import List, Dict
 import git
-from utils.parser import ReactParser
-from registry.database_client import DatabaseClient
+
+# Importar con fallback para diferentes contextos de ejecución
+try:
+    from utils.parser import ReactParser
+    from registry.database_client import DatabaseClient
+except ImportError:
+    # Si falla, intenta con prefijo src (para ejecución desde scripts)
+    from src.utils.parser import ReactParser  # type: ignore
+    from src.registry.database_client import DatabaseClient  # type: ignore
 
 
 class ProjectIndexer:
@@ -22,233 +29,111 @@ class ProjectIndexer:
         
         # Crear directorio temporal si no existe
         Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Directorios a excluir del escaneo
-        self.exclude_dirs = {
-            'node_modules', 
-            '.git', 
-            'dist', 
-            'build', 
-            '.next', 
-            'out',
-            'coverage',
-            '.cache',
-            'public',
-            'static',
-        }
-        
-        # Extensiones de archivos React
-        self.react_extensions = {'.tsx', '.jsx'}
     
-    async def index_remote_repository(
-        self, 
-        project_id: str, 
-        repo_url: str, 
-        branch: str = "main"
-    ):
+    async def index_project(self, project_id: str, repo_url: str, branch: str = "main") -> Dict:
         """
-        Clona e indexa un repositorio remoto.
+        Indexa un proyecto completo desde un repositorio remoto.
         
         Args:
-            project_id: ID del proyecto
-            repo_url: URL del repositorio
-            branch: Rama a clonar
+            project_id: ID único del proyecto
+            repo_url: URL del repositorio Git
+            branch: Rama a indexar (default: main)
+            
+        Returns:
+            Dict con estadísticas de indexación
         """
-        print(f"\n🔄 Indexing project: {project_id}")
-        print(f"📍 Repository: {repo_url}")
-        print(f"🌿 Branch: {branch}")
-        
-        # Preparar directorio de clonado
-        repo_path = Path(self.temp_dir) / project_id
+        try:
+            # Clonar repositorio
+            print(f"📥 Clonando {repo_url}...")
+            repo_path = await self._clone_repo(repo_url, project_id, branch)
+            
+            # Escanear componentes
+            print(f"🔍 Escaneando componentes en {project_id}...")
+            components = await self._scan_components(repo_path)
+            
+            if not components:
+                print(f"⚠️  No se encontraron componentes en {project_id}")
+                return {
+                    "project_id": project_id,
+                    "components_found": 0,
+                    "components_saved": 0,
+                    "status": "no_components"
+                }
+            
+            # Guardar en base de datos
+            print(f"💾 Guardando {len(components)} componentes en BD...")
+            await self.db.save_components(components, project_id)
+            
+            # Limpiar repositorio clonado
+            await self._cleanup_repo(repo_path)
+            
+            return {
+                "project_id": project_id,
+                "components_found": len(components),
+                "components_saved": len(components),
+                "status": "success"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error indexando {project_id}: {str(e)}")
+            return {
+                "project_id": project_id,
+                "error": str(e),
+                "status": "failed"
+            }
+    
+    async def _clone_repo(self, repo_url: str, project_id: str, branch: str) -> str:
+        """Clona un repositorio Git."""
+        repo_path = os.path.join(self.temp_dir, project_id)
         
         # Limpiar si existe
-        if repo_path.exists():
-            print(f"🧹 Cleaning existing directory...")
+        if os.path.exists(repo_path):
             shutil.rmtree(repo_path)
         
         try:
-            # Clonar repositorio (shallow clone para velocidad)
-            print(f"📥 Cloning repository...")
-            
-            # Configurar opciones de clonado
-            clone_options = {
-                'depth': 1,
-                'branch': branch,
-                'single_branch': True,
-            }
-            
-            # Agregar token de GitHub si está disponible
-            github_token = os.getenv("GITHUB_TOKEN")
-            if github_token and 'github.com' in repo_url:
-                # Insertar token en la URL
-                if repo_url.startswith('https://'):
-                    repo_url = repo_url.replace(
-                        'https://', 
-                        f'https://{github_token}@'
-                    )
-            
-            git.Repo.clone_from(repo_url, repo_path, **clone_options)
-            print(f"✅ Repository cloned successfully")
-            
-            # Escanear archivos React
-            print(f"🔍 Scanning React files...")
-            components = await self._scan_directory(repo_path, project_id)
-            
-            if not components:
-                print(f"⚠️  No components found in repository")
-                return
-            
-            # Guardar en database
-            print(f"💾 Saving {len(components)} components to database...")
-            await self.db.save_components(components, project_id)
-            
-            # Actualizar timestamp de sincronización
-            await self.db.update_project_sync_time(project_id)
-            
-            print(f"✅ Indexing complete! Found {len(components)} components")
-            
-        except git.GitCommandError as e:
-            print(f"❌ Git error: {e}")
-            raise Exception(f"Failed to clone repository: {e}")
+            git.Repo.clone_from(repo_url, repo_path, branch=branch)
+            return repo_path
         except Exception as e:
-            print(f"❌ Error during indexing: {e}")
-            raise
-        finally:
-            # Limpiar directorio temporal
-            if repo_path.exists():
-                print(f"🧹 Cleaning up temporary files...")
-                shutil.rmtree(repo_path)
+            raise Exception(f"Failed to clone repository: {str(e)}")
     
-    async def _scan_directory(self, directory: Path, project_id: str) -> List[Dict]:
-        """
-        Escanea un directorio recursivamente en busca de archivos React.
-        
-        Args:
-            directory: Directorio a escanear
-            project_id: ID del proyecto
-            
-        Returns:
-            Lista de componentes encontrados
-        """
+    async def _scan_components(self, repo_path: str) -> List[Dict]:
+        """Escanea directorio recursivamente buscando componentes React."""
         components = []
-        files_scanned = 0
         
-        # Buscar archivos .tsx y .jsx
-        for file_path in directory.rglob('*'):
-            # Verificar si está en directorio excluido
-            if any(excluded in file_path.parts for excluded in self.exclude_dirs):
-                continue
-            
-            # Solo archivos React
-            if file_path.suffix not in self.react_extensions:
-                continue
-            
-            files_scanned += 1
-            
-            try:
-                content = file_path.read_text(encoding='utf-8')
-                
-                # Extraer componentes
-                relative_path = str(file_path.relative_to(directory))
-                file_components = self.parser.extract_component_info(
-                    content,
-                    relative_path
-                )
-                
-                if file_components:
-                    components.extend(file_components)
-                    print(f"  ✓ {relative_path}: {len(file_components)} component(s)")
-                
-            except UnicodeDecodeError:
-                print(f"  ⚠️  Skipping {file_path}: encoding error")
-            except Exception as e:
-                print(f"  ⚠️  Error parsing {file_path}: {e}")
+        # Patrones de archivos a buscar
+        extensions = ('.tsx', '.ts', '.jsx', '.js')
         
-        print(f"\n📊 Scan summary:")
-        print(f"   Files scanned: {files_scanned}")
-        print(f"   Components found: {len(components)}")
+        # Directorios a ignorar
+        ignore_dirs = {'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv'}
+        
+        for root, dirs, files in os.walk(repo_path):
+            # Filtrar directorios ignorados
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            for file in files:
+                if file.endswith(extensions):
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, repo_path)
+                    
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                            
+                            # Parsear componentes
+                            parsed = self.parser.extract_component_info(content, relative_path)
+                            components.extend(parsed)
+                    
+                    except Exception as e:
+                        print(f"⚠️  Error procesando {relative_path}: {str(e)}")
+                        continue
         
         return components
     
-    async def reindex_project(self, project_id: str):
-        """
-        Re-indexa un proyecto existente.
-        
-        Args:
-            project_id: ID del proyecto
-        """
-        # Obtener información del proyecto
-        project = await self.db.get_project(project_id)
-        
-        if not project:
-            raise ValueError(f"Project '{project_id}' not found in database")
-        
-        # Indexar
-        await self.index_remote_repository(
-            project_id,
-            project['repository_url'],
-            project['branch']
-        )
-    
-    async def index_local_directory(self, directory: str, project_id: str):
-        """
-        Indexa un directorio local (útil para testing).
-        
-        Args:
-            directory: Ruta al directorio
-            project_id: ID del proyecto
-        """
-        print(f"\n🔄 Indexing local directory: {directory}")
-        
-        dir_path = Path(directory)
-        if not dir_path.exists():
-            raise ValueError(f"Directory not found: {directory}")
-        
-        # Escanear directorio
-        print(f"🔍 Scanning React files...")
-        components = await self._scan_directory(dir_path, project_id)
-        
-        if not components:
-            print(f"⚠️  No components found")
-            return
-        
-        # Guardar en database
-        print(f"💾 Saving {len(components)} components to database...")
-        await self.db.save_components(components, project_id)
-        
-        # Actualizar timestamp
-        await self.db.update_project_sync_time(project_id)
-        
-        print(f"✅ Indexing complete! Found {len(components)} components")
-
-
-# Función de utilidad para testing
-async def test_indexer():
-    """Prueba el indexador con un proyecto de ejemplo."""
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    db = DatabaseClient()
-    indexer = ProjectIndexer(db)
-    
-    # Proyecto de prueba (React oficial)
-    test_project = {
-        'id': 'react-examples',
-        'repository': 'https://github.com/facebook/react',
-        'branch': 'main'
-    }
-    
-    try:
-        await indexer.index_remote_repository(
-            test_project['id'],
-            test_project['repository'],
-            test_project['branch']
-        )
-    finally:
-        db.close()
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(test_indexer())
-
+    async def _cleanup_repo(self, repo_path: str):
+        """Limpia el directorio temporal del repositorio."""
+        try:
+            if os.path.exists(repo_path):
+                shutil.rmtree(repo_path)
+                print(f"🧹 Limpiado directorio temporal: {repo_path}")
+        except Exception as e:
+            print(f"⚠️  Error limpiando {repo_path}: {str(e)}")
