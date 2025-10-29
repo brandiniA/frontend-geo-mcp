@@ -86,15 +86,17 @@ async def list_components(
 
 @mcp.tool
 async def search_by_hook(
-    hook_name: Annotated[str, "Hook name (e.g., useState, useEffect)"]
+    hook_name: Annotated[str, "Hook name (e.g., useState, useEffect)"],
+    project_id: Annotated[Optional[str], "Filter by specific project"] = None
 ) -> str:
     """
     Find components that use a specific React hook.
     
     Example: search_by_hook("useState")
     Example: search_by_hook("useEffect")
+    Example: search_by_hook("useState", project_id="craftitapp")
     """
-    return await navigator.search_by_hook(hook_name)
+    return await navigator.search_by_hook(hook_name, project_id)
 
 
 @mcp.tool

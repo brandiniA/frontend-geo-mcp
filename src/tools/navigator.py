@@ -262,35 +262,56 @@ class ComponentNavigator:
         
         return response
     
-    async def search_by_hook(self, hook_name: str) -> str:
+    async def search_by_hook(self, hook_name: str, project_id: Optional[str] = None) -> str:
         """
         Busca componentes que usan un hook específico.
         
         Args:
             hook_name: Nombre del hook (ej: useState, useEffect)
+            project_id: Filtrar por proyecto (opcional). Si es None, busca en todos los proyectos
             
         Returns:
             Lista de componentes que usan el hook
         """
-        # Esta es una búsqueda más compleja que requeriría una query SQL especial
-        # Por ahora, buscaremos todos los componentes y filtraremos
-        components = await self.db.search_components("")
-        
-        matching = [
-            c for c in components 
-            if hook_name in c.get('hooks', [])
-        ]
+        # Usar el método especializado de búsqueda en la BD (más eficiente)
+        matching = await self.db.search_by_hook(hook_name, project_id)
         
         if not matching:
-            return f"❌ No components found using hook '{hook_name}'"
+            if project_id:
+                return f"❌ No components found using hook '{hook_name}' in project '{project_id}'"
+            else:
+                return f"❌ No components found using hook '{hook_name}'"
         
-        response = f"🪝 Found {len(matching)} component(s) using `{hook_name}`:\n\n"
+        response = f"🪝 Found {len(matching)} component(s) using `{hook_name}`"
+        if project_id:
+            response += f" in project `{project_id}`"
+        response += ":\n\n"
         
-        for comp in matching[:20]:
-            response += f"- **{comp['name']}** in `{comp['file_path']}`\n"
-        
-        if len(matching) > 20:
-            response += f"\n... and {len(matching) - 20} more\n"
+        # Agrupar por proyecto si no está filtrado
+        if not project_id:
+            by_project = {}
+            for comp in matching:
+                pid = comp['project_id']
+                if pid not in by_project:
+                    by_project[pid] = []
+                by_project[pid].append(comp)
+            
+            for pid, comps in by_project.items():
+                response += f"### 📦 {pid}\n\n"
+                for comp in comps[:15]:
+                    response += f"- **{comp['name']}** in `{comp['file_path']}`\n"
+                
+                if len(comps) > 15:
+                    response += f"- ... and {len(comps) - 15} more\n"
+                
+                response += "\n"
+        else:
+            # Mostrar resultados sin agrupar si está filtrado por proyecto
+            for comp in matching[:20]:
+                response += f"- **{comp['name']}** in `{comp['file_path']}`\n"
+            
+            if len(matching) > 20:
+                response += f"\n... and {len(matching) - 20} more\n"
         
         return response
     
@@ -491,9 +512,27 @@ async def test_navigator():
     navigator = ComponentNavigator(db)
     
     try:
-        # Buscar componentes
+        # Test 1: Buscar componentes por nombre
+        print("=" * 60)
+        print("Test 1: Buscar componentes por nombre 'Button'")
+        print("=" * 60)
         result = await navigator.find_component("Button")
         print(result)
+        
+        # Test 2: Buscar componentes por hook (nuevo método)
+        print("\n" + "=" * 60)
+        print("Test 2: Buscar componentes que usan 'useState' (BD optimizada)")
+        print("=" * 60)
+        result = await navigator.search_by_hook("useState")
+        print(result)
+        
+        # Test 3: Buscar componentes por hook en proyecto específico
+        print("\n" + "=" * 60)
+        print("Test 3: Buscar componentes que usan 'useEffect' en proyecto")
+        print("=" * 60)
+        result = await navigator.search_by_hook("useEffect")
+        print(result)
+        
     finally:
         db.close()
 

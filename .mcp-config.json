@@ -5,6 +5,12 @@
       "repository": "https://github.com/brandiniA/craftitapp",
       "branch": "main",
       "type": "application"
+    },
+    "platform-funnel": {
+      "name": "Platform Funnel",
+      "repository": "https://github.com/reservamos/platform-funnel",
+      "branch": "develop",
+      "type": "application"
     }
   }
 }

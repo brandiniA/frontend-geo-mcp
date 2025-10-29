@@ -239,6 +239,74 @@ class DatabaseClient:
 
         return await asyncio.to_thread(_count)
 
+    async def search_by_hook(
+        self, hook_name: str, project_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Busca componentes que usan un hook específico (búsqueda en la BD).
+        Más eficiente que traer todos los componentes y filtrar en memoria.
+        
+        Args:
+            hook_name: Nombre del hook (ej: useState, useEffect)
+            project_id: Filtrar por proyecto (opcional)
+            
+        Returns:
+            Lista de componentes que usan el hook
+        """
+        def _search():
+            session = self._get_session()
+            try:
+                from sqlalchemy import text, cast, String
+                
+                q = session.query(Component)
+                
+                # Convertir JSON a texto y buscar el hook
+                # Funciona con PostgreSQL, SQLite y MySQL
+                q = q.filter(cast(Component.hooks, String).contains(f'"{hook_name}"'))
+                
+                if project_id:
+                    q = q.filter(Component.project_id == project_id)
+                
+                components = q.all()
+                return [c.to_dict() for c in components]
+            finally:
+                session.close()
+
+        return await asyncio.to_thread(_search)
+
+    async def search_by_prop(
+        self, prop_name: str, project_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Busca componentes que usan una prop específica.
+        
+        Args:
+            prop_name: Nombre de la prop
+            project_id: Filtrar por proyecto (opcional)
+            
+        Returns:
+            Lista de componentes que usan la prop
+        """
+        def _search():
+            session = self._get_session()
+            try:
+                from sqlalchemy import cast, String
+                
+                q = session.query(Component)
+                
+                # Convertir JSON a texto y buscar la prop
+                q = q.filter(cast(Component.props, String).contains(f'"{prop_name}"'))
+                
+                if project_id:
+                    q = q.filter(Component.project_id == project_id)
+                
+                components = q.all()
+                return [c.to_dict() for c in components]
+            finally:
+                session.close()
+
+        return await asyncio.to_thread(_search)
+
     # ============================================
     # CONTEXT MANAGER
     # ============================================
