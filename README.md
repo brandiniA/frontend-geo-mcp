@@ -188,16 +188,6 @@ http://localhost:8080
 - Password: `postgres`
 - Database: `frontend_mcp`
 
-### pgAdmin Alternative
-
-```
-http://localhost:5050
-```
-
-**Credentials:**
-- Email: `admin@example.com`
-- Password: `admin`
-
 ### CLI Access
 
 ```bash
@@ -452,22 +442,3 @@ GITHUB_TOKEN=
 PORT=8080
 ```
 
-## 📄 License
-
-MIT
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📧 Support
-
-For issues and questions, please open a GitHub issue.
-
----
