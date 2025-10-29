@@ -142,22 +142,7 @@ http://localhost:8080
 - Export data
 - No installation required (runs in browser)
 
-### Option 2: pgAdmin Web UI
-
-```
-http://localhost:5050
-```
-
-**Login credentials:**
-- Email: `admin@example.com`
-- Password: `admin`
-
-**Features:**
-- Full database management
-- Visual query builder
-- Performance monitoring
-
-### Option 3: Command Line
+### Option 2: Command Line
 
 ```bash
 # Connect to database
