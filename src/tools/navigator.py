@@ -4,6 +4,14 @@ Navigator tool para búsqueda y exploración de componentes React.
 
 from typing import List, Dict, Optional
 from registry.database_client import DatabaseClient
+from .utils import (
+    format_relative_time,
+    get_all_hooks,
+    is_new_component,
+    group_components_by_type,
+    group_by_project,
+    search_in_jsdoc,
+)
 
 
 class ComponentNavigator:
@@ -34,13 +42,8 @@ class ComponentNavigator:
         
         response = f"📍 Found {len(components)} component(s) matching '{query}':\n\n"
         
-        # Agrupar por proyecto
-        by_project = {}
-        for comp in components:
-            pid = comp['project_id']
-            if pid not in by_project:
-                by_project[pid] = []
-            by_project[pid].append(comp)
+        # Agrupar por proyecto usando utilidad
+        by_project = group_by_project(components)
         
         # Formatear respuesta
         for pid, comps in by_project.items():
@@ -61,11 +64,21 @@ class ComponentNavigator:
                         props_list += f" (+{len(comp['props']) - 5} more)"
                     response += f"- 📦 Props: {props_list}\n"
                 
-                if comp['hooks']:
-                    hooks_list = ', '.join(comp['hooks'][:5])
-                    if len(comp['hooks']) > 5:
-                        hooks_list += f" (+{len(comp['hooks']) - 5} more)"
-                    response += f"- 🪝 Hooks: {hooks_list}\n"
+                # Mostrar hooks nativos de React
+                native_hooks = comp.get('native_hooks_used', [])
+                if native_hooks:
+                    native_list = ', '.join(native_hooks[:5])
+                    if len(native_hooks) > 5:
+                        native_list += f" (+{len(native_hooks) - 5} more)"
+                    response += f"- 🪝 Native Hooks: {native_list}\n"
+                
+                # Mostrar custom hooks
+                custom_hooks = comp.get('custom_hooks_used', [])
+                if custom_hooks:
+                    custom_list = ', '.join(custom_hooks[:5])
+                    if len(custom_hooks) > 5:
+                        custom_list += f" (+{len(custom_hooks) - 5} more)"
+                    response += f"- 🎣 Custom Hooks: {custom_list}\n"
                 
                 if comp['description']:
                     response += f"- 📝 Description: {comp['description']}\n"
@@ -84,6 +97,7 @@ class ComponentNavigator:
     ) -> str:
         """
         Obtiene detalles específicos de un componente.
+        Incluye información de cuándo fue creado y modificado.
         
         Args:
             component_name: Nombre del componente
@@ -116,6 +130,13 @@ class ComponentNavigator:
         
         response += f"**Path:** `{comp['file_path']}`\n"
         response += f"**Type:** {comp['component_type']}\n"
+        
+        # Información de fechas (usando utilidad)
+        if comp.get('created_at'):
+            response += f"**Added:** {format_relative_time(comp['created_at'])}\n"
+        
+        if comp.get('updated_at'):
+            response += f"**Modified:** {format_relative_time(comp['updated_at'])}\n"
         
         if comp['description']:
             response += f"**Description:** {comp['description']}\n"
@@ -168,11 +189,27 @@ class ComponentNavigator:
                 response += f"- `{prop}`\n"
             response += "\n"
         
-        # Hooks
-        if comp['hooks']:
+        # Hooks - mostrar separados (native y custom)
+        native_hooks = comp.get('native_hooks_used', [])
+        custom_hooks = comp.get('custom_hooks_used', [])
+        
+        if native_hooks or custom_hooks:
             response += "### 🪝 Hooks Used\n"
-            for hook in comp['hooks']:
-                response += f"- `{hook}`\n"
+            
+            if native_hooks:
+                response += "**Native Hooks:**\n"
+                for hook in native_hooks[:10]:
+                    response += f"- `{hook}`\n"
+                if len(native_hooks) > 10:
+                    response += f"- ... and {len(native_hooks) - 10} more\n"
+            
+            if custom_hooks:
+                response += "**Custom Hooks:**\n"
+                for hook in custom_hooks[:10]:
+                    response += f"- `{hook}`\n"
+                if len(custom_hooks) > 10:
+                    response += f"- ... and {len(custom_hooks) - 10} more\n"
+            
             response += "\n"
         
         # Dependencies
@@ -213,6 +250,7 @@ class ComponentNavigator:
     ) -> str:
         """
         Lista todos los componentes (con filtros opcionales).
+        Muestra 🆕 para componentes creados en los últimos 7 días.
         
         Args:
             project_id: Filtrar por proyecto
@@ -232,13 +270,8 @@ class ComponentNavigator:
         
         response = f"📂 **Component Catalog** ({len(components)} total)\n\n"
         
-        # Agrupar por tipo
-        by_type = {}
-        for comp in components:
-            comp_type = comp['component_type'] or 'component'
-            if comp_type not in by_type:
-                by_type[comp_type] = []
-            by_type[comp_type].append(comp)
+        # Agrupar por tipo usando utilidad
+        by_type = group_components_by_type(components)
         
         # Mostrar por tipo
         type_icons = {
@@ -253,7 +286,9 @@ class ComponentNavigator:
             response += f"### {icon} {comp_type.title()}s ({len(comps)})\n\n"
             
             for comp in sorted(comps, key=lambda x: x['name'])[:20]:
-                response += f"- **{comp['name']}** - `{comp['file_path']}`\n"
+                # Usar is_new_component para determinar si mostrar badge
+                new_badge = " 🆕" if is_new_component(comp) else ""
+                response += f"- **{comp['name']}** - `{comp['file_path']}`{new_badge}\n"
             
             if len(comps) > 20:
                 response += f"- ... and {len(comps) - 20} more\n"
@@ -287,14 +322,9 @@ class ComponentNavigator:
             response += f" in project `{project_id}`"
         response += ":\n\n"
         
-        # Agrupar por proyecto si no está filtrado
+        # Agrupar por proyecto si no está filtrado (usando utilidad)
         if not project_id:
-            by_project = {}
-            for comp in matching:
-                pid = comp['project_id']
-                if pid not in by_project:
-                    by_project[pid] = []
-                by_project[pid].append(comp)
+            by_project = group_by_project(matching)
             
             for pid, comps in by_project.items():
                 response += f"### 📦 {pid}\n\n"
@@ -332,56 +362,24 @@ class ComponentNavigator:
         else:
             components = await self.db.get_all_components()
         
-        matching = []
-        query_lower = query.lower()
-        
-        for c in components:
-            if not c.get('jsdoc'):
-                continue
-            
-            jsdoc = c['jsdoc']
-            
-            # Buscar en descripción
-            if jsdoc.get('description', '').lower().find(query_lower) != -1:
-                matching.append((c, 'description'))
-                continue
-            
-            # Buscar en parámetros
-            for param in jsdoc.get('params', []):
-                if (query_lower in param.get('name', '').lower() or
-                    query_lower in param.get('description', '').lower() or
-                    query_lower in param.get('type', '').lower()):
-                    matching.append((c, f"param: {param['name']}"))
-                    break
-            else:
-                # Buscar en returns
-                returns = jsdoc.get('returns', {})
-                if returns and (query_lower in returns.get('description', '').lower() or
-                               query_lower in returns.get('type', '').lower()):
-                    matching.append((c, 'returns'))
-                    continue
-                
-                # Buscar en ejemplos
-                for example in jsdoc.get('examples', []):
-                    if query_lower in example.lower():
-                        matching.append((c, 'example'))
-                        break
+        # Usar utilidad de búsqueda en JSDoc
+        matching = search_in_jsdoc(components, query)
         
         if not matching:
             return f"❌ No components found with JSDoc matching '{query}'"
         
         response = f"🔍 Found {len(matching)} component(s) with '{query}' in documentation:\n\n"
         
-        # Agrupar por proyecto
-        by_project = {}
+        # Agrupar por proyecto (usando utilidad)
+        by_project_with_match = {}
         for comp, match_type in matching:
             pid = comp['project_id']
-            if pid not in by_project:
-                by_project[pid] = []
-            by_project[pid].append((comp, match_type))
+            if pid not in by_project_with_match:
+                by_project_with_match[pid] = []
+            by_project_with_match[pid].append((comp, match_type))
         
         # Formatear respuesta
-        for pid, comps in by_project.items():
+        for pid, comps in by_project_with_match.items():
             response += f"### 📦 {pid}\n"
             
             for comp, match_type in comps[:10]:

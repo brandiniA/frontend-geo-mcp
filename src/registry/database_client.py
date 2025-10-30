@@ -275,25 +275,29 @@ class DatabaseClient:
     ) -> List[Dict[str, Any]]:
         """
         Busca componentes que usan un hook específico (búsqueda en la BD).
+        Busca tanto en hooks nativos (React) como en custom hooks.
         Más eficiente que traer todos los componentes y filtrar en memoria.
         
         Args:
-            hook_name: Nombre del hook (ej: useState, useEffect)
+            hook_name: Nombre del hook (ej: useState, useEffect, useAuth)
             project_id: Filtrar por proyecto (opcional)
             
         Returns:
-            Lista de componentes que usan el hook
+            Lista de componentes que usan el hook (nativo o custom)
         """
         def _search():
             session = self._get_session()
             try:
-                from sqlalchemy import text, cast, String
+                from sqlalchemy import text, cast, String, or_
                 
                 q = session.query(Component)
                 
-                # Convertir JSON a texto y buscar el hook
-                # Funciona con PostgreSQL, SQLite y MySQL
-                q = q.filter(cast(Component.hooks, String).contains(f'"{hook_name}"'))
+                # Buscar el hook en native_hooks_used O custom_hooks_used
+                # Convierte JSON a texto y busca el nombre entre comillas (ej: "useState")
+                native_search = cast(Component.native_hooks_used, String).contains(f'"{hook_name}"')
+                custom_search = cast(Component.custom_hooks_used, String).contains(f'"{hook_name}"')
+                
+                q = q.filter(or_(native_search, custom_search))
                 
                 if project_id:
                     q = q.filter(Component.project_id == project_id)

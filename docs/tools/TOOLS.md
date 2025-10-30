@@ -68,6 +68,8 @@ Get detailed information about a specific component.
 **Returns:**
 - Component name and type
 - File path
+- **NEW:** Added date (relative time: "2 days ago", "1 hour ago", etc.)
+- **NEW:** Modified date (last update time)
 - Props with descriptions
 - Hooks used
 - Dependencies imported
@@ -77,11 +79,41 @@ Get detailed information about a specific component.
 **Examples:**
 ```
 @frontend-gps get_component_details("Button", "ui-library")
-# Shows: props, hooks, imports, usage example
+# Shows: props, hooks, imports, usage example, and creation/modification dates
 
 @frontend-gps get_component_details("useAuth", "main-app")
 # Shows custom hook details and usage
 ```
+
+**Output Format:**
+
+```markdown
+## 📋 Component Details: Button
+
+**Project:** UI Library (library)
+**Path:** `src/components/Button.tsx`
+**Type:** component
+**Added:** 5 days ago
+**Modified:** 2 hours ago
+**Description:** Reusable button component for common actions
+
+### 📝 Overview
+[JSDoc description]
+
+### 📥 Parameters
+- **`label`** (`string`): Button text
+- **`onClick`** (`Function`): Click handler
+
+[... rest of documentation ...]
+```
+
+**Understanding Relative Times:**
+- "just now" - Less than 1 minute ago
+- "5 minutes ago" - Recently created/modified
+- "2 hours ago" - Same day
+- "3 days ago" - Recent component
+- "2 weeks ago" - Older component
+- "1 month ago" - Much older
 
 ### list_components
 
@@ -99,14 +131,15 @@ List all indexed components with optional filtering.
 - `component_type` (optional) - Filter by type: 'component', 'page', 'layout', 'hook'
 
 **Returns:**
-- Grouped list of components
+- Grouped list of components by type
 - Count per category
 - File paths
+- **NEW:** 🆕 badge for components created in last 7 days
 
 **Examples:**
 ```
 @frontend-gps list_components()
-# Lists all components grouped by type
+# Lists all components grouped by type, with 🆕 for recent additions
 
 @frontend-gps list_components(project_id="ui-library")
 # Lists only UI library components
@@ -114,6 +147,20 @@ List all indexed components with optional filtering.
 @frontend-gps list_components(component_type="page")
 # Lists only page components (routes)
 ```
+
+**Understanding the Output:**
+
+```markdown
+### 🧩 Components (45)
+
+- **Button** - `src/components/Button.tsx`
+- **Card** - `src/components/Card.tsx` 🆕
+- **Modal** - `src/components/Modal.tsx`
+- **Header** - `src/components/Header.tsx` 🆕
+- ... and 41 more
+```
+
+The 🆕 badge indicates components created within the last 7 days.
 
 ### search_by_hook
 
