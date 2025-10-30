@@ -38,6 +38,14 @@ Technical documentation:
 - Design patterns
 - Key technologies
 
+#### [Parser Validation Guide](parser/VALIDATION.md)
+Component naming and validation rules:
+- Component naming conventions
+- Validation rules and criteria
+- What gets indexed vs rejected
+- Directory structure recommendations
+- Best practices
+
 ### Quick Reference
 
 **Tech Stack:**
@@ -138,6 +146,9 @@ fastmcp dev src/server.py:mcp
 
 **Troubleshoot issues**
 → See [SETUP.md - Troubleshooting](SETUP.md#troubleshooting)
+
+**Understand component validation**
+→ Read [Parser Validation Guide](parser/VALIDATION.md)
 
 ## 🔗 External Resources
 

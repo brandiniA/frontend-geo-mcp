@@ -87,6 +87,52 @@ class ComponentResponse(ComponentBase):
 
 
 # ============================================
+# HOOK MODELS (Custom Hooks)
+# ============================================
+
+class HookBase(BaseModel):
+    """Modelo base para custom hooks."""
+    name: str
+    file_path: str
+    hook_type: str = "custom"
+    description: Optional[str] = None
+    return_type: Optional[str] = None
+    parameters: List[Dict[str, Any]] = Field(default_factory=list)
+    imports: List[str] = Field(default_factory=list)
+    exports: List[str] = Field(default_factory=list)
+    native_hooks_used: List[str] = Field(default_factory=list)
+    custom_hooks_used: List[str] = Field(default_factory=list)
+    jsdoc: Optional[Dict[str, Any]] = None
+
+
+class HookCreate(HookBase):
+    """Modelo para crear hooks."""
+    project_id: str
+
+
+class HookUpdate(BaseModel):
+    """Modelo para actualizar hooks."""
+    description: Optional[str] = None
+    return_type: Optional[str] = None
+    parameters: Optional[List[Dict[str, Any]]] = None
+    imports: Optional[List[str]] = None
+    exports: Optional[List[str]] = None
+    native_hooks_used: Optional[List[str]] = None
+    custom_hooks_used: Optional[List[str]] = None
+    jsdoc: Optional[Dict[str, Any]] = None
+
+
+class HookResponse(HookBase):
+    """Modelo de respuesta para hooks."""
+    id: int
+    project_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
 # SQLALCHEMY MODELS (Base de datos)
 # ============================================
 
@@ -101,10 +147,11 @@ class Project(Base):
     type = Column(String, default="application")
     is_active = Column(String, default="true")
     last_sync = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=func.now())
 
-    # Relación
+    # Relaciones
     components = relationship("Component", back_populates="project", cascade="all, delete-orphan")
+    hooks = relationship("Hook", back_populates="project", cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convierte a diccionario."""
@@ -129,14 +176,21 @@ class Component(Base):
     project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     file_path = Column(String, nullable=False)
     props = Column(JSON, default=[])
-    hooks = Column(JSON, default=[])
+    # native_hooks_used: JSON array de nombres de hooks nativos de React
+    # Ej: ["useState", "useEffect", "useContext"]
+    native_hooks_used = Column(JSON, default=[])
+    # custom_hooks_used: JSON array de nombres de custom hooks indexados en la tabla hooks
+    # Solo contiene hooks que realmente existen en la tabla hooks de este proyecto
+    # Se valida al guardar componentes (ver save_components en database_client.py)
+    # Ej: ["useUserData", "useAuth", "useLocalStorage"]
+    custom_hooks_used = Column(JSON, default=[])
     imports = Column(JSON, default=[])
     exports = Column(JSON, default=[])
     component_type = Column(String)
     description = Column(String)
     jsdoc = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # Relación
     project = relationship("Project", back_populates="components")
@@ -156,11 +210,63 @@ class Component(Base):
             'project_id': self.project_id,
             'file_path': self.file_path,
             'props': self.props or [],
-            'hooks': self.hooks or [],
+            'native_hooks_used': self.native_hooks_used or [],
+            'custom_hooks_used': self.custom_hooks_used or [],
             'imports': self.imports or [],
             'exports': self.exports or [],
             'component_type': self.component_type,
             'description': self.description,
+            'jsdoc': self.jsdoc,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+        }
+
+
+class Hook(Base):
+    """Modelo SQLAlchemy para custom hooks."""
+    __tablename__ = "hooks"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    file_path = Column(String, nullable=False)
+    hook_type = Column(String, default="custom")
+    description = Column(String, nullable=True)
+    return_type = Column(String, nullable=True)
+    parameters = Column(JSON, default=[])
+    imports = Column(JSON, default=[])
+    exports = Column(JSON, default=[])
+    native_hooks_used = Column(JSON, default=[])
+    custom_hooks_used = Column(JSON, default=[])
+    jsdoc = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relación
+    project = relationship("Project", back_populates="hooks")
+
+    # Índices para búsqueda rápida
+    __table_args__ = (
+        Index('idx_hooks_name', 'name'),
+        Index('idx_hooks_project', 'project_id'),
+        Index('idx_hooks_unique', 'name', 'project_id', 'file_path', unique=True),
+    )
+
+    def to_dict(self):
+        """Convierte a diccionario."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'project_id': self.project_id,
+            'file_path': self.file_path,
+            'hook_type': self.hook_type,
+            'description': self.description,
+            'return_type': self.return_type,
+            'parameters': self.parameters or [],
+            'imports': self.imports or [],
+            'exports': self.exports or [],
+            'native_hooks_used': self.native_hooks_used or [],
+            'custom_hooks_used': self.custom_hooks_used or [],
             'jsdoc': self.jsdoc,
             'created_at': self.created_at,
             'updated_at': self.updated_at,

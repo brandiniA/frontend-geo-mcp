@@ -2,6 +2,20 @@
 
 Complete reference for all available MCP tools in Frontend GPS.
 
+## 📋 Quick Reference
+
+| Category | Tool | Purpose |
+|----------|------|---------|
+| 🔍 Navigator | `find_component` | Search components by name |
+| 🔍 Navigator | `get_component_details` | Get component props, hooks, imports |
+| 🔍 Navigator | `list_components` | List all components with filters |
+| 🔍 Navigator | `search_by_hook` | Find components using specific hooks |
+| 🔍 Navigator | `search_by_jsdoc` | Search JSDoc documentation |
+| 📚 Navigator | `get_component_docs` | View complete JSDoc documentation |
+| 🔄 Sync | `sync_project` | Index components from GitHub |
+| 📂 Sync | `list_projects` | View configured projects |
+| 📊 Stats | `get_stats` | View overall statistics |
+
 ## 🔍 Navigator Tools
 
 ### find_component
@@ -129,6 +143,105 @@ Find components that use a specific React hook.
 
 @frontend-gps search_by_hook("useReducer")
 # All components using useReducer
+```
+
+### search_by_jsdoc
+
+Find components by searching their JSDoc documentation.
+
+**Usage in Cursor:**
+```
+@frontend-gps search_by_jsdoc("validation")
+@frontend-gps search_by_jsdoc("click handler", project_id="ui-library")
+```
+
+**Parameters:**
+- `query` (required) - Search term to find in JSDoc (descriptions, param names, return types, examples)
+- `project_id` (optional) - Filter by specific project
+
+**Returns:**
+- List of matching components
+- Why the component matched (description, param, returns, example)
+- File paths
+- Project information
+
+**Examples:**
+```
+@frontend-gps search_by_jsdoc("validation")
+# Finds all components with "validation" in their documentation
+
+@frontend-gps search_by_jsdoc("click handler")
+# Finds components documenting click handlers
+
+@frontend-gps search_by_jsdoc("returns Promise", project_id="main-app")
+# Finds async components in specific project
+```
+
+**What It Searches:**
+- Component descriptions
+- Parameter names and descriptions
+- Return type descriptions
+- Example code
+- Author information
+
+### get_component_docs
+
+Get the complete JSDoc documentation for a component.
+
+**Usage in Cursor:**
+```
+@frontend-gps get_component_docs("Button", "ui-library")
+@frontend-gps get_component_docs("useAuth", "main-app")
+```
+
+**Parameters:**
+- `component_name` (required) - Exact component name
+- `project_id` (required) - Project ID where component exists
+
+**Returns:**
+- Complete JSDoc documentation including:
+  - Overview/description
+  - Parameters with types and descriptions
+  - Return types and descriptions
+  - Code examples
+  - Author information
+  - Version information
+  - Deprecation warnings (if applicable)
+
+**Examples:**
+```
+@frontend-gps get_component_docs("Button", "ui-library")
+# Shows full JSDoc for Button component
+
+@frontend-gps get_component_docs("useForm", "main-app")
+# Shows custom hook documentation
+
+@frontend-gps get_component_docs("Modal", "ui-library")
+# Shows detailed Modal documentation with examples
+```
+
+**Format of Output:**
+```markdown
+## 📚 Documentation: ComponentName
+
+**File:** `src/components/ComponentName.tsx`
+**Project:** project-id
+
+### 📝 Overview
+[Component description from JSDoc]
+
+### 📥 Parameters
+- **`propName`** (`type`)
+  Description of parameter
+
+### 📤 Returns
+**Type:** `ReturnType`
+**Description:** What it returns
+
+### 💡 Examples
+**Example 1:**
+[Code example from JSDoc]
+```
 ```
 
 ## 🔄 Sync Tools
@@ -289,6 +402,35 @@ Get overall statistics about indexed components.
 @frontend-gps list_components(component_type="component")
 ```
 
+### Workflow 5: Search and Review JSDoc Documentation
+
+```bash
+# Find components with specific keywords in documentation
+@frontend-gps search_by_jsdoc("validation")
+
+# Get complete documentation for a component
+@frontend-gps get_component_docs("FormValidator", "ui-library")
+
+# Find components by specific patterns in documentation
+@frontend-gps search_by_jsdoc("async")
+```
+
+### Workflow 6: Comprehensive Component Analysis
+
+```bash
+# Find component by name
+@frontend-gps find_component("UserProfile")
+
+# Get all details including JSDoc
+@frontend-gps get_component_details("UserProfile", "main-app")
+
+# Get complete documentation
+@frontend-gps get_component_docs("UserProfile", "main-app")
+
+# Find similar components
+@frontend-gps search_by_hook("useState")
+```
+
 ## 🎯 Best Practices
 
 ### 1. Before Syncing
@@ -344,9 +486,35 @@ Get overall statistics about indexed components.
 - Use exact path shown in tool response
 - Paths are relative to src/ directory
 
+### "No JSDoc documentation found"
+**Problem:** `get_component_docs()` returns empty
+**Solution:**
+- Component may not have JSDoc comments
+- Add JSDoc comments to your component files
+- Example JSDoc format:
+```javascript
+/**
+ * Button component for common actions.
+ * @param {Object} props - Component props
+ * @param {string} props.label - Button text
+ * @param {Function} props.onClick - Click handler
+ * @returns {JSX.Element} Rendered button
+ */
+export const Button = ({ label, onClick }) => (...)
+```
+- Re-sync project after adding documentation: `@frontend-gps sync_project("project-id")`
+
+### "JSDoc search returns too many results"
+**Problem:** Query is too broad
+**Solution:**
+- Use more specific search terms
+- Combine with `project_id` filter: `search_by_jsdoc("validation", project_id="ui-library")`
+- Try searching in `get_component_docs()` instead for exact components
+
 ## 📚 See Also
 
 - [DATABASE.md](../database/DATABASE.md) - Database schema and queries
 - [SETUP.md](../SETUP.md) - Installation and setup
 - [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - System design
+- [VALIDATION.md](../parser/VALIDATION.md) - Parser component validation rules
 

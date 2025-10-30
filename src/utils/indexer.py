@@ -33,6 +33,9 @@ class ProjectIndexer:
     async def index_project(self, project_id: str, repo_url: str, branch: str = "main") -> Dict:
         """
         Indexa un proyecto completo desde un repositorio remoto.
+        Implementa indexación en dos fases:
+        1. Indexar todos los custom hooks primero
+        2. Indexar componentes (separando hooks nativos y custom)
         
         Args:
             project_id: ID único del proyecto
@@ -47,18 +50,37 @@ class ProjectIndexer:
             print(f"📥 Clonando {repo_url}...")
             repo_path = await self._clone_repo(repo_url, project_id, branch)
             
-            # Escanear componentes
-            print(f"🔍 Escaneando componentes en {project_id}...")
+            # ============================================
+            # FASE 1: Indexar Custom Hooks
+            # ============================================
+            print(f"🔍 Fase 1: Escaneando custom hooks en {project_id}...")
+            hooks = await self._scan_hooks(repo_path)
+            
+            if hooks:
+                print(f"💾 Guardando {len(hooks)} custom hooks en BD...")
+                await self.db.save_hooks(hooks, project_id)
+            else:
+                print(f"⚠️  No se encontraron custom hooks en {project_id}")
+            
+            # ============================================
+            # FASE 2: Indexar Componentes
+            # ============================================
+            print(f"🔍 Fase 2: Escaneando componentes en {project_id}...")
             components = await self._scan_components(repo_path)
             
             if not components:
                 print(f"⚠️  No se encontraron componentes en {project_id}")
-                return {
+                result = {
                     "project_id": project_id,
+                    "hooks_found": len(hooks) if hooks else 0,
+                    "hooks_saved": len(hooks) if hooks else 0,
                     "components_found": 0,
                     "components_saved": 0,
                     "status": "no_components"
                 }
+                # Limpiar repositorio
+                await self._cleanup_repo(repo_path)
+                return result
             
             # Guardar en base de datos
             print(f"💾 Guardando {len(components)} componentes en BD...")
@@ -69,6 +91,8 @@ class ProjectIndexer:
             
             return {
                 "project_id": project_id,
+                "hooks_found": len(hooks) if hooks else 0,
+                "hooks_saved": len(hooks) if hooks else 0,
                 "components_found": len(components),
                 "components_saved": len(components),
                 "status": "success"
@@ -96,6 +120,46 @@ class ProjectIndexer:
         except Exception as e:
             raise Exception(f"Failed to clone repository: {str(e)}")
     
+    async def _scan_hooks(self, repo_path: str) -> List[Dict]:
+        """Escanea directorio recursivamente buscando custom hooks.
+        
+        Optimización: SOLO procesa archivos que empiezan con 'use' (convención de hooks).
+        Esto reduce significativamente el tiempo de escaneo.
+        """
+        hooks = []
+        
+        # Patrones de archivos a buscar
+        extensions = ('.tsx', '.ts', '.jsx', '.js')
+        
+        # Directorios a ignorar
+        ignore_dirs = {'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv'}
+        
+        for root, dirs, files in os.walk(repo_path):
+            # Filtrar directorios ignorados
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            for file in files:
+                # 🎯 OPTIMIZACIÓN: Filtrar SOLO archivos que empiezan con 'use'
+                if not file.startswith('use') or not file.endswith(extensions):
+                    continue
+                
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, repo_path)
+                
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        
+                        # Parsear custom hooks
+                        parsed = self.parser.extract_hook_info(content, relative_path)
+                        hooks.extend(parsed)
+                
+                except Exception as e:
+                    print(f"⚠️  Error procesando {relative_path}: {str(e)}")
+                    continue
+        
+        return hooks
+    
     async def _scan_components(self, repo_path: str) -> List[Dict]:
         """Escanea directorio recursivamente buscando componentes React."""
         components = []
@@ -104,7 +168,24 @@ class ProjectIndexer:
         extensions = ('.tsx', '.ts', '.jsx', '.js')
         
         # Directorios a ignorar
-        ignore_dirs = {'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv'}
+        ignore_dirs = {
+            'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv',
+            'constants', 'consts', 'const',          # 🆕 Valores estáticos
+            'config', 'configs', 'configuration',    # 🆕 Configuración
+            'types', 'interfaces',                   # 🆕 Definiciones de tipos
+            'enums',                                  # 🆕 Enumeraciones
+            '__tests__', 'tests', 'test',            # 🆕 Tests
+            '.storybook',                            # 🆕 Storybook
+            'vendor',                                 # 🆕 Vendor
+            'public',                                 # 🆕 Public
+            'static',                                 # 🆕 Static
+            'assets',                                 # 🆕 Assets
+            'images',                                 # 🆕 Images
+            'icons',                                  # 🆕 Icons
+            'logos',                                  # 🆕 Logos
+            'fonts',                                  # 🆕 Fonts
+            'videos',                                 # 🆕 Videos
+        }
         
         for root, dirs, files in os.walk(repo_path):
             # Filtrar directorios ignorados
