@@ -6,11 +6,18 @@ from typing import List, Dict, Optional, Any
 from registry.database_client import DatabaseClient
 from .utils import (
     format_relative_time,
-    get_all_hooks,
     is_new_component,
-    group_components_by_type,
     group_by_project,
     search_in_jsdoc,
+    generate_import_path,
+    format_component_summary,
+    format_project_header,
+    format_jsdoc_section,
+    format_hooks_section,
+    format_components_by_type,
+    truncate_description,
+    format_usage_example,
+    get_component_type_icon,
 )
 
 
@@ -45,48 +52,20 @@ class ComponentNavigator:
         # Agrupar por proyecto usando utilidad
         by_project = group_by_project(components)
         
-        # Formatear respuesta
+        # Formatear respuesta usando utilidades
         for pid, comps in by_project.items():
             project = await self.db.get_project(pid)
-            project_name = project['name'] if project else pid
-            project_type = project['type'] if project else 'unknown'
-            
-            response += f"### 🏢 {project_name.upper()} ({project_type})\n\n"
+            response += format_project_header(project, pid) + "\n\n"
             
             for comp in comps:
-                response += f"**{comp['name']}**\n"
-                response += f"- 📂 Path: `{comp['file_path']}`\n"
-                response += f"- 🏷️  Type: {comp['component_type']}\n"
-                
-                if comp['props']:
-                    props_list = ', '.join(comp['props'][:5])
-                    if len(comp['props']) > 5:
-                        props_list += f" (+{len(comp['props']) - 5} more)"
-                    response += f"- 📦 Props: {props_list}\n"
-                
-                # Mostrar hooks nativos de React
-                native_hooks = comp.get('native_hooks_used', [])
-                if native_hooks:
-                    native_list = ', '.join(native_hooks[:5])
-                    if len(native_hooks) > 5:
-                        native_list += f" (+{len(native_hooks) - 5} more)"
-                    response += f"- 🪝 Native Hooks: {native_list}\n"
-                
-                # Mostrar custom hooks
-                custom_hooks = comp.get('custom_hooks_used', [])
-                if custom_hooks:
-                    custom_list = ', '.join(custom_hooks[:5])
-                    if len(custom_hooks) > 5:
-                        custom_list += f" (+{len(custom_hooks) - 5} more)"
-                    response += f"- 🎣 Custom Hooks: {custom_list}\n"
-                
-                if comp['description']:
-                    response += f"- 📝 Description: {comp['description']}\n"
-                
-                # Generar import statement
-                import_path = self._generate_import_path(comp)
-                response += f"- 🔗 Import: `import {{ {comp['name']} }} from '{import_path}'`\n"
-                response += "\n"
+                response += format_component_summary(
+                    comp,
+                    include_props=True,
+                    include_hooks=True,
+                    include_description=True,
+                    include_import=True,
+                    max_items=5
+                ) + "\n\n"
         
         return response
     
@@ -146,41 +125,7 @@ class ComponentNavigator:
         # JSDoc completo si está disponible
         jsdoc = comp.get('jsdoc')
         if jsdoc:
-            # Descripción extendida
-            if jsdoc.get('description'):
-                response += f"### 📝 Overview\n{jsdoc['description']}\n\n"
-            
-            # Parámetros
-            if jsdoc.get('params'):
-                response += "### 📥 Parameters\n"
-                for param in jsdoc['params']:
-                    response += f"- **`{param['name']}`** (`{param['type']}`): {param['description']}\n"
-                response += "\n"
-            
-            # Returns
-            if jsdoc.get('returns'):
-                returns = jsdoc['returns']
-                response += f"### 📤 Returns\n**Type:** `{returns['type']}`\n"
-                if returns['description']:
-                    response += f"**Description:** {returns['description']}\n"
-                response += "\n"
-            
-            # Ejemplos
-            if jsdoc.get('examples'):
-                response += "### 💡 Examples\n"
-                for i, example in enumerate(jsdoc['examples'], 1):
-                    response += f"**Example {i}:**\n```tsx\n{example}\n```\n"
-                response += "\n"
-            
-            # Información adicional
-            if jsdoc.get('deprecated'):
-                response += "⚠️ **DEPRECATED** - This component is deprecated\n\n"
-            
-            if jsdoc.get('author'):
-                response += f"👤 **Author:** {jsdoc['author']}\n"
-            
-            if jsdoc.get('version'):
-                response += f"📌 **Version:** {jsdoc['version']}\n"
+            response += format_jsdoc_section(jsdoc)
         
         # Props (si no están en JSDoc)
         if comp['props'] and not (jsdoc and jsdoc.get('params')):
@@ -190,27 +135,9 @@ class ComponentNavigator:
             response += "\n"
         
         # Hooks - mostrar separados (native y custom)
-        native_hooks = comp.get('native_hooks_used', [])
-        custom_hooks = comp.get('custom_hooks_used', [])
-        
-        if native_hooks or custom_hooks:
-            response += "### 🪝 Hooks Used\n"
-            
-            if native_hooks:
-                response += "**Native Hooks:**\n"
-                for hook in native_hooks[:10]:
-                    response += f"- `{hook}`\n"
-                if len(native_hooks) > 10:
-                    response += f"- ... and {len(native_hooks) - 10} more\n"
-            
-            if custom_hooks:
-                response += "**Custom Hooks:**\n"
-                for hook in custom_hooks[:10]:
-                    response += f"- `{hook}`\n"
-                if len(custom_hooks) > 10:
-                    response += f"- ... and {len(custom_hooks) - 10} more\n"
-            
-            response += "\n"
+        hooks_section = format_hooks_section(comp, max_hooks=10)
+        if hooks_section:
+            response += hooks_section
         
         # Dependencies
         if comp['imports']:
@@ -223,23 +150,7 @@ class ComponentNavigator:
         
         # Usage example (si no hay en JSDoc)
         if not (jsdoc and jsdoc.get('examples')):
-            response += "### 💡 Basic Usage\n"
-            response += "```tsx\n"
-            
-            import_path = self._generate_import_path(comp)
-            response += f"import {{ {comp['name']} }} from '{import_path}';\n\n"
-            
-            if comp['props']:
-                response += f"<{comp['name']}\n"
-                for prop in comp['props'][:3]:
-                    response += f"  {prop}={{/* value */}}\n"
-                if len(comp['props']) > 3:
-                    response += f"  // ... and {len(comp['props']) - 3} more props\n"
-                response += "/>\n"
-            else:
-                response += f"<{comp['name']} />\n"
-            
-            response += "```\n"
+            response += format_usage_example(comp, include_props=True, max_props=3)
         
         return response
     
@@ -269,31 +180,7 @@ class ComponentNavigator:
             return "📂 No components found"
         
         response = f"📂 **Component Catalog** ({len(components)} total)\n\n"
-        
-        # Agrupar por tipo usando utilidad
-        by_type = group_components_by_type(components)
-        
-        # Mostrar por tipo
-        type_icons = {
-            'page': '📄',
-            'component': '🧩',
-            'layout': '📐',
-            'hook': '🪝',
-        }
-        
-        for comp_type, comps in sorted(by_type.items()):
-            icon = type_icons.get(comp_type, '📦')
-            response += f"### {icon} {comp_type.title()}s ({len(comps)})\n\n"
-            
-            for comp in sorted(comps, key=lambda x: x['name'])[:20]:
-                # Usar is_new_component para determinar si mostrar badge
-                new_badge = " 🆕" if is_new_component(comp) else ""
-                response += f"- **{comp['name']}** - `{comp['file_path']}`{new_badge}\n"
-            
-            if len(comps) > 20:
-                response += f"- ... and {len(comps) - 20} more\n"
-            
-            response += "\n"
+        response += format_components_by_type(components, show_new_badge=True, max_per_type=20)
         
         return response
     
@@ -318,27 +205,7 @@ class ComponentNavigator:
             return f"❌ No components found in path '{path}'"
         
         response = f"📂 **Components in `{path}`** ({len(components)} total)\n\n"
-        
-        # Agrupar por tipo
-        by_type = group_components_by_type(components)
-        
-        # Mostrar por tipo
-        type_icons = {
-            'page': '📄',
-            'component': '🧩',
-            'layout': '📐',
-            'hook': '🪝',
-        }
-        
-        for comp_type, comps in sorted(by_type.items()):
-            icon = type_icons.get(comp_type, '📦')
-            response += f"### {icon} {comp_type.title()}s ({len(comps)})\n\n"
-            
-            for comp in sorted(comps, key=lambda x: x['name']):
-                new_badge = " 🆕" if is_new_component(comp) else ""
-                response += f"- **{comp['name']}** - `{comp['file_path']}`{new_badge}\n"
-            
-            response += "\n"
+        response += format_components_by_type(components, show_new_badge=True)
         
         return response
     
@@ -420,25 +287,21 @@ class ComponentNavigator:
         for pid, comps in by_project.items():
             try:
                 project = await self.db.get_project(pid)
-                project_name = project['name'] if project else pid
             except Exception as e:
-                project_name = pid
+                project = None
                 print(f"Error getting project {pid}: {e}")  # Debug
             
-            response += f"### 🏢 {project_name.upper()}\n\n"
+            response += format_project_header(project, pid) + "\n\n"
             
             for comp in comps[:20]:  # Limitar visualización a 20
-                response += f"**{comp.get('name', 'Unknown')}**\n"
-                response += f"- 📂 Path: `{comp.get('file_path', '')}`\n"
-                response += f"- 🏷️  Type: {comp.get('component_type', 'unknown')}\n"
-                
-                if comp.get('description'):
-                    desc = comp['description'][:100]
-                    if len(comp['description']) > 100:
-                        desc += "..."
-                    response += f"- 📝 Description: {desc}\n"
-                
-                response += "\n"
+                response += format_component_summary(
+                    comp,
+                    include_props=False,
+                    include_hooks=False,
+                    include_description=True,
+                    include_import=False,
+                    max_items=5
+                ) + "\n\n"
             
             if len(comps) > 20:
                 response += f"- ... and {len(comps) - 20} more\n"
@@ -583,71 +446,11 @@ class ComponentNavigator:
         response += f"**File:** `{comp['file_path']}`\n"
         response += f"**Project:** {project_id}\n\n"
         
-        # Descripción principal
-        if jsdoc.get('description'):
-            response += f"### 📝 Overview\n{jsdoc['description']}\n\n"
-        
-        # Parámetros
-        if jsdoc.get('params'):
-            response += "### 📥 Parameters\n"
-            for param in jsdoc['params']:
-                response += f"- **`{param['name']}`** (`{param['type']}`)\n"
-                if param.get('description'):
-                    response += f"  {param['description']}\n"
-            response += "\n"
-        
-        # Returns
-        if jsdoc.get('returns'):
-            returns = jsdoc['returns']
-            response += "### 📤 Returns\n"
-            response += f"**Type:** `{returns['type']}`\n"
-            if returns.get('description'):
-                response += f"**Description:** {returns['description']}\n"
-            response += "\n"
-        
-        # Ejemplos
-        if jsdoc.get('examples'):
-            response += "### 💡 Examples\n"
-            for i, example in enumerate(jsdoc['examples'], 1):
-                response += f"**Example {i}:**\n```tsx\n{example}\n```\n"
-            response += "\n"
-        
-        # Información adicional
-        if jsdoc.get('deprecated'):
-            response += "⚠️ **DEPRECATED** - This component is deprecated\n\n"
-        
-        if jsdoc.get('author'):
-            response += f"👤 **Author:** {jsdoc['author']}\n"
-        
-        if jsdoc.get('version'):
-            response += f"📌 **Version:** {jsdoc['version']}\n"
+        # Usar utilidad para formatear JSDoc
+        response += format_jsdoc_section(jsdoc)
         
         return response
     
-    def _generate_import_path(self, component: Dict) -> str:
-        """
-        Genera la ruta de import correcta para un componente.
-        
-        Args:
-            component: Diccionario con información del componente
-            
-        Returns:
-            Ruta de import
-        """
-        file_path = component['file_path']
-        
-        # Remover extensión
-        import_path = file_path.replace('.tsx', '').replace('.jsx', '')
-        
-        # Si empieza con src/, removerlo
-        if import_path.startswith('src/'):
-            import_path = import_path[4:]
-        
-        # Agregar ./ al inicio si no tiene
-        if not import_path.startswith('./') and not import_path.startswith('@'):
-            import_path = './' + import_path
-        
-        return import_path
 
 
 # Función de utilidad para testing
