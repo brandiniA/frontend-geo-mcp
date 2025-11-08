@@ -214,6 +214,35 @@ Complete guides available in `/docs`:
 ### Testing
 
 ```bash
+# Instalar dependencias de desarrollo (solo primera vez)
+uv sync --dev
+# o
+make install-dev
+
+# Ejecutar todas las pruebas
+uv run pytest
+# o usar el script
+./scripts/test.sh
+# o usar make
+make test
+
+# Ejecutar pruebas con cobertura
+uv run pytest --cov=src --cov-report=html
+# o
+make test-cov
+
+# Ejecutar pruebas específicas
+uv run pytest tests/test_tools.py
+uv run pytest tests/test_repositories.py
+
+# Ejecutar solo tests unitarios (excluir integration)
+uv run pytest -m "not integration"
+# o
+make test-unit
+
+# Ver ayuda de comandos make
+make help
+
 # Test database connection
 uv run python scripts/test_local_db.py
 

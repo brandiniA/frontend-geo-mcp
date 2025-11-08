@@ -9,12 +9,14 @@ Complete reference for all available MCP tools in Frontend GPS.
 | 🔍 Navigator | `find_component` | Search components by name |
 | 🔍 Navigator | `get_component_details` | Get component props, hooks, imports |
 | 🔍 Navigator | `list_components` | List all components with filters |
+| 🔍 Navigator | `list_components_in_path` | List components in specific directory path |
 | 🔍 Navigator | `search_by_hook` | Find components using specific hooks |
 | 🔍 Navigator | `search_by_jsdoc` | Search JSDoc documentation |
+| 🔍 Navigator | `search_components_semantic` | Advanced semantic search with filters |
 | 📚 Navigator | `get_component_docs` | View complete JSDoc documentation |
 | 🔄 Sync | `sync_project` | Index components from GitHub |
 | 📂 Sync | `list_projects` | View configured projects |
-| 📊 Stats | `get_stats` | View overall statistics |
+| 📊 Stats | `get_stats` | View detailed statistics |
 
 ## 🔍 Navigator Tools
 
@@ -162,6 +164,60 @@ List all indexed components with optional filtering.
 
 The 🆕 badge indicates components created within the last 7 days.
 
+### list_components_in_path
+
+List all components in a specific directory path. Returns all components without pagination limit.
+
+**Usage in Cursor:**
+```
+@frontend-gps list_components_in_path("src/components/purchase", "platform-funnel")
+@frontend-gps list_components_in_path("src/ui/atoms", "ui-library")
+```
+
+**Parameters:**
+- `path` (required) - Directory path (e.g., "src/components/purchase")
+- `project_id` (required) - Project ID
+
+**Returns:**
+- All components in the specified path
+- Grouped by type
+- File paths
+- 🆕 badge for new components
+
+**Use Cases:**
+- Explore a complete feature/module
+- Understand architecture of a specific area
+- Find all components related to a feature
+
+**Examples:**
+```
+@frontend-gps list_components_in_path("src/components/purchase", "platform-funnel")
+# Returns all components in purchase directory (~45 components)
+
+@frontend-gps list_components_in_path("src/ui/atoms", "ui-library")
+# Returns all atom components (~120 components)
+
+@frontend-gps list_components_in_path("src/components/checkout", "main-app")
+# Returns all checkout-related components
+```
+
+**Output Format:**
+```markdown
+📂 **Components in `src/components/purchase`** (45 total)
+
+### 🧩 Components (30)
+
+- **Checkout** - `src/components/purchase/Checkout.tsx`
+- **PaymentForm** - `src/components/purchase/PaymentForm.tsx` 🆕
+- **PricingRow** - `src/components/purchase/PricingRow.tsx`
+...
+
+### 📄 Pages (15)
+
+- **CheckoutPage** - `src/components/purchase/CheckoutPage.tsx`
+...
+```
+
 ### search_by_hook
 
 Find components that use a specific React hook.
@@ -230,6 +286,64 @@ Find components by searching their JSDoc documentation.
 - Return type descriptions
 - Example code
 - Author information
+
+### search_components_semantic
+
+Advanced semantic search for components with optional filters. Searches in names, descriptions, file paths, and JSDoc. Results are ranked by relevance.
+
+**Usage in Cursor:**
+```
+@frontend-gps search_components_semantic("price breakdown")
+@frontend-gps search_components_semantic("button", filters={"type": "atom"})
+@frontend-gps search_components_semantic("form", filters={"path": "src/components", "contains_hook": "useState"})
+```
+
+**Parameters:**
+- `query` (required) - Search term
+- `project_id` (optional) - Filter by project
+- `filters` (optional) - Advanced filters dictionary:
+  - `type`: Filter by component type ('atom', 'molecule', 'page', 'hook', 'container')
+  - `path`: Filter by directory path (e.g., "src/components/purchase")
+  - `contains_hook`: Filter components using a specific hook (e.g., "useState")
+  - `contains_dependency`: Filter components importing a dependency (e.g., "react-router")
+
+**Returns:**
+- Components matching query across multiple fields
+- Ranked by relevance (name match > description match > path match)
+- Grouped by project
+- Limited to top 20 displayed, but total count shown
+
+**Search Fields:**
+- Component names
+- Descriptions
+- File paths
+- JSDoc content
+
+**Ranking:**
+- Name match: 10 points (+5 for exact match)
+- Description match: 5 points
+- File path match: 2 points
+
+**Examples:**
+```
+@frontend-gps search_components_semantic("price breakdown")
+# Finds components mentioning "price breakdown" in name, description, or path
+
+@frontend-gps search_components_semantic("button", filters={"type": "atom"})
+# Finds atom components matching "button"
+
+@frontend-gps search_components_semantic("form", filters={"path": "src/components", "contains_hook": "useState"})
+# Finds form components in src/components that use useState
+
+@frontend-gps search_components_semantic("auth", filters={"contains_dependency": "react-router"})
+# Finds auth-related components that import react-router
+```
+
+**When to Use:**
+- You don't know the exact component name
+- You want to find components by functionality/meaning
+- You need to combine multiple search criteria
+- You want ranked results by relevance
 
 ### get_component_docs
 
@@ -368,7 +482,7 @@ List all configured projects and their sync status.
 
 ### get_stats
 
-Get overall statistics about indexed components.
+Get detailed statistics about indexed components. Includes breakdown by type, top paths, and index coverage.
 
 **Usage in Cursor:**
 ```
@@ -381,15 +495,52 @@ Get overall statistics about indexed components.
 **Returns:**
 - Total projects configured
 - Total components indexed
-- Components per project
-- Component types breakdown
+- Breakdown by component type (component, page, layout, hook, etc.)
+- Top 10 paths with most components
+- Last update timestamp
+- Index coverage percentage
 
 **Examples:**
 ```
 @frontend-gps get_stats()
-# Shows total: 2 projects, 156 components
-# Breakdown by project and type
+# Shows comprehensive statistics:
+# - Total: 645 components
+# - By Type: component: 300, page: 45, hook: 55, ...
+# - Top Paths: src/components/purchase: 45, src/ui/atoms: 120, ...
+# - Last Updated: 2024-12-15T10:30:00
+# - Index Coverage: 100%
 ```
+
+**Output Format:**
+```markdown
+📊 **Frontend GPS Statistics**
+
+- **Total Projects:** 2
+- **Total Components:** 645
+
+**By Type:**
+- component: 300
+- page: 45
+- hook: 55
+- layout: 20
+- atom: 120
+- molecule: 105
+
+**Top Paths:**
+- `src/components/purchase`: 45 components
+- `src/ui/atoms`: 120 components
+- `src/ui/molecules`: 105 components
+...
+
+**Last Updated:** 2024-12-15T10:30:00
+**Index Coverage:** 100%
+```
+
+**Use Cases:**
+- Understand project structure
+- Identify areas with most components
+- Verify index coverage
+- Plan refactoring based on component distribution
 
 ## 📋 Common Workflows
 
@@ -407,7 +558,33 @@ Get overall statistics about indexed components.
 @frontend-gps search_by_hook("useState")
 ```
 
-### Workflow 2: Add New Project to Index
+### Workflow 2: Explore Feature by Path
+
+```bash
+# Step 1: List all components in a feature directory
+@frontend-gps list_components_in_path("src/components/purchase", "platform-funnel")
+
+# Step 2: Get details of specific component
+@frontend-gps get_component_details("Checkout", "platform-funnel")
+
+# Step 3: Find related components using semantic search
+@frontend-gps search_components_semantic("pricing", filters={"path": "src/components/purchase"})
+```
+
+### Workflow 3: Advanced Semantic Search
+
+```bash
+# Step 1: Search by meaning with filters
+@frontend-gps search_components_semantic("form validation", filters={"type": "component"})
+
+# Step 2: Narrow down by hook usage
+@frontend-gps search_components_semantic("form", filters={"contains_hook": "useState", "path": "src/components"})
+
+# Step 3: Get details of found components
+@frontend-gps get_component_details("UserForm", "main-app")
+```
+
+### Workflow 4: Add New Project to Index
 
 ```bash
 # Step 1: Edit .mcp-config.json
@@ -423,20 +600,20 @@ Get overall statistics about indexed components.
 @frontend-gps list_components(project_id="my-project")
 ```
 
-### Workflow 3: Check How Many Projects Are Indexed
+### Workflow 5: Check Project Statistics
 
 ```bash
-# Get overall statistics
+# Get overall statistics with breakdown
 @frontend-gps get_stats()
 
 # Get detailed project list
 @frontend-gps list_projects()
 
-# Browse all components
-@frontend-gps list_components()
+# Explore top paths
+@frontend-gps list_components_in_path("src/ui/atoms", "ui-library")
 ```
 
-### Workflow 4: Find Hooks Usage
+### Workflow 6: Find Hooks Usage
 
 ```bash
 # Find all components using a specific hook
@@ -449,7 +626,7 @@ Get overall statistics about indexed components.
 @frontend-gps list_components(component_type="component")
 ```
 
-### Workflow 5: Search and Review JSDoc Documentation
+### Workflow 7: Search and Review JSDoc Documentation
 
 ```bash
 # Find components with specific keywords in documentation
@@ -462,7 +639,7 @@ Get overall statistics about indexed components.
 @frontend-gps search_by_jsdoc("async")
 ```
 
-### Workflow 6: Comprehensive Component Analysis
+### Workflow 8: Comprehensive Component Analysis
 
 ```bash
 # Find component by name
@@ -489,6 +666,9 @@ Get overall statistics about indexed components.
 - Use partial names: `find_component("Button")` finds Button, PrimaryButton, etc.
 - Filter by project when possible: `find_component("Button", project_id="ui-library")`
 - Use `search_by_hook()` to find components by pattern
+- Use `list_components_in_path()` to explore features by directory
+- Use `search_components_semantic()` for advanced multi-field searches with filters
+- Combine filters in semantic search for precise results
 
 ### 3. Maintaining Index
 - Regularly sync projects: `sync_project("my-project")`
