@@ -4,7 +4,7 @@ Navigator and Code Reviewer for React projects
 """
 
 from fastmcp import FastMCP
-from typing import Optional, Annotated
+from typing import Optional, Annotated, Dict, Any
 import os
 import json
 from pathlib import Path
@@ -85,6 +85,21 @@ async def list_components(
 
 
 @mcp.tool
+async def list_components_in_path(
+    path: Annotated[str, "Directory path (e.g., 'src/components/purchase')"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    List all components in a specific directory path.
+    Returns all components without pagination limit.
+    
+    Example: list_components_in_path("src/components/purchase", "platform-funnel")
+    Example: list_components_in_path("src/ui/atoms", "ui-library")
+    """
+    return await navigator.list_components_in_path(path, project_id)
+
+
+@mcp.tool
 async def search_by_hook(
     hook_name: Annotated[str, "Hook name (e.g., useState, useEffect)"],
     project_id: Annotated[Optional[str], "Filter by specific project"] = None
@@ -112,6 +127,25 @@ async def search_by_jsdoc(
     Example: search_by_jsdoc("form validation", project_id="ui-library")
     """
     return await navigator.search_by_jsdoc(query, project_id)
+
+
+@mcp.tool
+async def search_components_semantic(
+    query: Annotated[str, "Search term"] = "",
+    project_id: Annotated[Optional[str], "Filter by project"] = None,
+    filters: Annotated[Optional[Dict[str, Any]], "Advanced filters"] = None
+) -> str:
+    """
+    Search components by meaning with optional filters.
+    Searches in names, descriptions, file paths, and JSDoc.
+    
+    Example: search_components_semantic("price breakdown")
+    Example: search_components_semantic("button", filters={"type": "atom"})
+    Example: search_components_semantic("form", filters={"path": "src/components", "contains_hook": "useState"})
+    """
+    # Convertir string vacío a None para consistencia
+    query_param = query if query else None
+    return await navigator.search_components_semantic(query_param, project_id, filters)
 
 
 @mcp.tool
@@ -205,22 +239,34 @@ async def list_projects() -> str:
 @mcp.tool
 async def get_stats() -> str:
     """
-    Get statistics about indexed components.
+    Get detailed statistics about indexed components.
+    Includes totals, breakdown by type and path.
     
     Example: get_stats()
     """
-    total_components = await db_client.get_component_count()
+    stats = await db_client.get_component_index_stats()
     projects = await db_client.list_projects()
     
     response = "📊 **Frontend GPS Statistics**\n\n"
-    response += f"- Total Projects: {len(projects)}\n"
-    response += f"- Total Components: {total_components}\n\n"
+    response += f"- **Total Projects:** {len(projects)}\n"
+    response += f"- **Total Components:** {stats['total']}\n\n"
     
-    if projects:
-        response += "**By Project:**\n"
-        for project in projects:
-            count = await db_client.get_component_count(project['id'])
-            response += f"- {project['name']}: {count} components\n"
+    if stats['byType']:
+        response += "**By Type:**\n"
+        for comp_type, count in sorted(stats['byType'].items()):
+            response += f"- {comp_type}: {count}\n"
+        response += "\n"
+    
+    if stats['byPath']:
+        response += "**Top Paths:**\n"
+        for path, count in list(stats['byPath'].items())[:10]:
+            response += f"- `{path}`: {count} components\n"
+        response += "\n"
+    
+    if stats['lastUpdated']:
+        response += f"**Last Updated:** {stats['lastUpdated']}\n"
+    
+    response += f"**Index Coverage:** {stats['indexCoverage']}%\n"
     
     return response
 

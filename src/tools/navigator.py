@@ -2,7 +2,7 @@
 Navigator tool para búsqueda y exploración de componentes React.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from registry.database_client import DatabaseClient
 from .utils import (
     format_relative_time,
@@ -289,6 +289,156 @@ class ComponentNavigator:
                 # Usar is_new_component para determinar si mostrar badge
                 new_badge = " 🆕" if is_new_component(comp) else ""
                 response += f"- **{comp['name']}** - `{comp['file_path']}`{new_badge}\n"
+            
+            if len(comps) > 20:
+                response += f"- ... and {len(comps) - 20} more\n"
+            
+            response += "\n"
+        
+        return response
+    
+    async def list_components_in_path(
+        self, 
+        path: str, 
+        project_id: str
+    ) -> str:
+        """
+        Lista componentes en una ruta específica.
+        
+        Args:
+            path: Ruta del directorio
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista formateada en markdown
+        """
+        components = await self.db.list_components_in_path(path, project_id)
+        
+        if not components:
+            return f"❌ No components found in path '{path}'"
+        
+        response = f"📂 **Components in `{path}`** ({len(components)} total)\n\n"
+        
+        # Agrupar por tipo
+        by_type = group_components_by_type(components)
+        
+        # Mostrar por tipo
+        type_icons = {
+            'page': '📄',
+            'component': '🧩',
+            'layout': '📐',
+            'hook': '🪝',
+        }
+        
+        for comp_type, comps in sorted(by_type.items()):
+            icon = type_icons.get(comp_type, '📦')
+            response += f"### {icon} {comp_type.title()}s ({len(comps)})\n\n"
+            
+            for comp in sorted(comps, key=lambda x: x['name']):
+                new_badge = " 🆕" if is_new_component(comp) else ""
+                response += f"- **{comp['name']}** - `{comp['file_path']}`{new_badge}\n"
+            
+            response += "\n"
+        
+        return response
+    
+    async def search_components_semantic(
+        self,
+        query: Optional[str] = None,
+        project_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Búsqueda semántica avanzada de componentes.
+        
+        Args:
+            query: Término de búsqueda
+            project_id: Filtrar por proyecto (opcional)
+            filters: Filtros adicionales
+            
+        Returns:
+            Lista formateada en markdown
+        """
+    async def search_components_semantic(
+        self,
+        query: Optional[str] = None,
+        project_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Búsqueda semántica avanzada de componentes.
+        
+        Args:
+            query: Término de búsqueda
+            project_id: Filtrar por proyecto (opcional)
+            filters: Filtros adicionales
+            
+        Returns:
+            Lista formateada en markdown
+        """
+        try:
+            components = await self.db.search_components_semantic(query, project_id, filters)
+        except Exception as e:
+            import traceback
+            error_msg = f"❌ Error in search_components_semantic: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)  # Debug
+            return error_msg
+        
+        if not components:
+            filter_str = f" with filters {filters}" if filters else ""
+            query_str = f"'{query}'" if query else "empty query"
+            return f"❌ No components found matching {query_str}{filter_str}"
+        
+        # Asegurar que todos los componentes son diccionarios
+        components_list = []
+        for comp in components:
+            if isinstance(comp, dict):
+                components_list.append(comp)
+            elif hasattr(comp, 'to_dict'):
+                components_list.append(comp.to_dict())
+            else:
+                # Fallback: crear diccionario manualmente
+                components_list.append({
+                    'id': getattr(comp, 'id', None),
+                    'name': getattr(comp, 'name', ''),
+                    'project_id': getattr(comp, 'project_id', ''),
+                    'file_path': getattr(comp, 'file_path', ''),
+                    'props': getattr(comp, 'props', []),
+                    'component_type': getattr(comp, 'component_type', None),
+                    'description': getattr(comp, 'description', None),
+                })
+        
+        query_display = query if query else "all components"
+        response = f"🔍 Found {len(components_list)} component(s) matching '{query_display}'"
+        if filters:
+            response += f" with filters: {filters}"
+        response += ":\n\n"
+        
+        # Agrupar por proyecto
+        by_project = group_by_project(components_list)
+        
+        for pid, comps in by_project.items():
+            try:
+                project = await self.db.get_project(pid)
+                project_name = project['name'] if project else pid
+            except Exception as e:
+                project_name = pid
+                print(f"Error getting project {pid}: {e}")  # Debug
+            
+            response += f"### 🏢 {project_name.upper()}\n\n"
+            
+            for comp in comps[:20]:  # Limitar visualización a 20
+                response += f"**{comp.get('name', 'Unknown')}**\n"
+                response += f"- 📂 Path: `{comp.get('file_path', '')}`\n"
+                response += f"- 🏷️  Type: {comp.get('component_type', 'unknown')}\n"
+                
+                if comp.get('description'):
+                    desc = comp['description'][:100]
+                    if len(comp['description']) > 100:
+                        desc += "..."
+                    response += f"- 📝 Description: {desc}\n"
+                
+                response += "\n"
             
             if len(comps) > 20:
                 response += f"- ... and {len(comps) - 20} more\n"
