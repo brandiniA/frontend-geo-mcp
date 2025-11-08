@@ -13,10 +13,24 @@ import git
 try:
     from utils.parser import ReactParser
     from registry.database_client import DatabaseClient
+    from utils.file_utils import (
+        REACT_EXTENSIONS,
+        BASE_IGNORE_DIRS,
+        COMPONENT_IGNORE_DIRS,
+        scan_files,
+        read_file_safe,
+    )
 except ImportError:
     # Si falla, intenta con prefijo src (para ejecución desde scripts)
     from src.utils.parser import ReactParser  # type: ignore
     from src.registry.database_client import DatabaseClient  # type: ignore
+    from src.utils.file_utils import (  # type: ignore
+        REACT_EXTENSIONS,
+        BASE_IGNORE_DIRS,
+        COMPONENT_IGNORE_DIRS,
+        scan_files,
+        read_file_safe,
+    )
 
 
 class ProjectIndexer:
@@ -126,89 +140,40 @@ class ProjectIndexer:
         Optimización: SOLO procesa archivos que empiezan con 'use' (convención de hooks).
         Esto reduce significativamente el tiempo de escaneo.
         """
-        hooks = []
+        def is_hook_file(filename: str) -> bool:
+            """Filtro para archivos de hooks."""
+            return filename.startswith('use') and filename.endswith(REACT_EXTENSIONS)
         
-        # Patrones de archivos a buscar
-        extensions = ('.tsx', '.ts', '.jsx', '.js')
+        def process_hook_file(content: str, relative_path: str) -> List[Dict]:
+            """Procesa un archivo de hook."""
+            return self.parser.extract_hook_info(content, relative_path)
         
-        # Directorios a ignorar
-        ignore_dirs = {'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv'}
-        
-        for root, dirs, files in os.walk(repo_path):
-            # Filtrar directorios ignorados
-            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
-            
-            for file in files:
-                # 🎯 OPTIMIZACIÓN: Filtrar SOLO archivos que empiezan con 'use'
-                if not file.startswith('use') or not file.endswith(extensions):
-                    continue
-                
-                file_path = os.path.join(root, file)
-                relative_path = os.path.relpath(file_path, repo_path)
-                
-                try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                        
-                        # Parsear custom hooks
-                        parsed = self.parser.extract_hook_info(content, relative_path)
-                        hooks.extend(parsed)
-                
-                except Exception as e:
-                    print(f"⚠️  Error procesando {relative_path}: {str(e)}")
-                    continue
-        
-        return hooks
+        return scan_files(
+            repo_path=repo_path,
+            file_filter=is_hook_file,
+            ignore_dirs=BASE_IGNORE_DIRS,
+            process_file=process_hook_file
+        )
     
     async def _scan_components(self, repo_path: str) -> List[Dict]:
         """Escanea directorio recursivamente buscando componentes React."""
-        components = []
+        def is_component_file(filename: str) -> bool:
+            """Filtro para archivos de componentes."""
+            return filename.endswith(REACT_EXTENSIONS)
         
-        # Patrones de archivos a buscar
-        extensions = ('.tsx', '.ts', '.jsx', '.js')
+        def process_component_file(content: str, relative_path: str) -> List[Dict]:
+            """Procesa un archivo de componente."""
+            return self.parser.extract_component_info(content, relative_path)
         
-        # Directorios a ignorar
-        ignore_dirs = {
-            'node_modules', '.git', '.next', 'dist', 'build', '.venv', 'venv',
-            'constants', 'consts', 'const',          # 🆕 Valores estáticos
-            'config', 'configs', 'configuration',    # 🆕 Configuración
-            'types', 'interfaces',                   # 🆕 Definiciones de tipos
-            'enums',                                  # 🆕 Enumeraciones
-            '__tests__', 'tests', 'test',            # 🆕 Tests
-            '.storybook',                            # 🆕 Storybook
-            'vendor',                                 # 🆕 Vendor
-            'public',                                 # 🆕 Public
-            'static',                                 # 🆕 Static
-            'assets',                                 # 🆕 Assets
-            'images',                                 # 🆕 Images
-            'icons',                                  # 🆕 Icons
-            'logos',                                  # 🆕 Logos
-            'fonts',                                  # 🆕 Fonts
-            'videos',                                 # 🆕 Videos
-        }
+        # Combinar directorios base con los específicos de componentes
+        ignore_dirs = BASE_IGNORE_DIRS | COMPONENT_IGNORE_DIRS
         
-        for root, dirs, files in os.walk(repo_path):
-            # Filtrar directorios ignorados
-            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
-            
-            for file in files:
-                if file.endswith(extensions):
-                    file_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(file_path, repo_path)
-                    
-                    try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                            
-                            # Parsear componentes
-                            parsed = self.parser.extract_component_info(content, relative_path)
-                            components.extend(parsed)
-                    
-                    except Exception as e:
-                        print(f"⚠️  Error procesando {relative_path}: {str(e)}")
-                        continue
-        
-        return components
+        return scan_files(
+            repo_path=repo_path,
+            file_filter=is_component_file,
+            ignore_dirs=ignore_dirs,
+            process_file=process_component_file
+        )
     
     async def _cleanup_repo(self, repo_path: str):
         """Limpia el directorio temporal del repositorio."""

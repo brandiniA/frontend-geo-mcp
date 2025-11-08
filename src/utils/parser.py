@@ -4,8 +4,15 @@ Extrae información de componentes sin necesidad de AST complejo.
 """
 
 import re
+import os
 from typing import List, Dict, Optional
 from pathlib import Path
+
+# Importar utilidades de archivos
+try:
+    from utils.file_utils import get_file_name_without_ext
+except ImportError:
+    from src.utils.file_utils import get_file_name_without_ext  # type: ignore
 
 
 class ReactParser:
@@ -254,8 +261,8 @@ class ReactParser:
     
     def _extract_hooks(self, content: str) -> List[str]:
         """Extrae hooks utilizados."""
-        hooks = list(set(re.findall(self.HOOKS_PATTERN, content)))
-        return sorted(hooks)[:15]  # Limitar a 15 hooks
+        hooks = re.findall(self.HOOKS_PATTERN, content)
+        return self._limit_and_sort(hooks, limit=15)
     
     def _separate_hooks(self, hooks: List[str]) -> tuple[List[str], List[str]]:
         """
@@ -359,10 +366,8 @@ class ReactParser:
         Returns:
             True si el archivo probablemente contiene un custom hook
         """
-        # Obtener el nombre del archivo sin extensión
-        import os
-        file_name = os.path.basename(file_path)
-        name_without_ext = os.path.splitext(file_name)[0]
+        # Obtener el nombre del archivo sin extensión usando utilidad
+        name_without_ext = get_file_name_without_ext(file_path)
         
         # Debe empezar con 'use' seguido de mayúscula
         return bool(re.match(r'^use[A-Z]', name_without_ext))
@@ -372,12 +377,27 @@ class ReactParser:
         imports = re.findall(self.IMPORT_PATTERN, content)
         # Filtrar imports relativos muy largos
         imports = [imp for imp in imports if len(imp) < 100]
-        return imports[:10]  # Limitar a 10 para no saturar
+        return self._limit_and_sort(imports, limit=10)
     
     def _extract_exports(self, content: str) -> List[str]:
         """Extrae exports."""
-        exports = list(set(re.findall(self.EXPORT_PATTERN, content)))
-        return sorted(exports)[:10]
+        exports = re.findall(self.EXPORT_PATTERN, content)
+        return self._limit_and_sort(exports, limit=10)
+    
+    def _limit_and_sort(self, items: List[str], limit: int = 10) -> List[str]:
+        """
+        Limita y ordena una lista de items.
+        
+        Utilidad común para imports, exports, hooks, etc.
+        
+        Args:
+            items: Lista de items
+            limit: Límite máximo de items a retornar
+        
+        Returns:
+            Lista limitada y ordenada
+        """
+        return sorted(list(set(items)))[:limit]
     
     def _determine_type(self, file_path: str) -> str:
         """Determina el tipo de componente basado en la ruta."""
