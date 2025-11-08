@@ -8,9 +8,19 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Detectar el comando correcto de docker-compose
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif docker compose version &> /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo "❌ docker-compose o docker compose no encontrados. Por favor instala Docker Compose."
+    exit 1
+fi
+
 # Iniciar PostgreSQL con docker-compose
 echo "📦 Starting PostgreSQL container..."
-docker-compose up -d
+$DOCKER_COMPOSE_CMD up -d
 
 # Esperar a que PostgreSQL esté listo
 echo "⏳ Waiting for PostgreSQL to be ready..."
