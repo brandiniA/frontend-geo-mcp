@@ -19,6 +19,7 @@ from .utils import (
     format_usage_example,
     get_component_type_icon,
 )
+from .utils.hierarchy_utils import build_dependency_tree, format_tree
 
 
 class ComponentNavigator:
@@ -450,6 +451,64 @@ class ComponentNavigator:
         response += format_jsdoc_section(jsdoc)
         
         return response
+    
+    async def get_component_hierarchy(
+        self,
+        component_name: str,
+        project_id: str,
+        direction: str = 'down',
+        max_depth: int = 5
+    ) -> str:
+        """
+        Obtiene el árbol de jerarquía de un componente.
+        
+        Args:
+            component_name: Nombre del componente
+            project_id: ID del proyecto
+            direction: 'down' (dependencias), 'up' (dependientes), 'both'
+            max_depth: Profundidad máxima del árbol (default: 5)
+        
+        Returns:
+            Respuesta formateada en markdown con el árbol
+        """
+        # Buscar componente
+        components = await self.db.search_components(component_name, project_id)
+        
+        if not components:
+            return f"❌ Component '{component_name}' not found in project '{project_id}'"
+        
+        # Usar el primer componente encontrado
+        component = components[0]
+        component_id = component.get('id')
+        
+        if not component_id:
+            return f"❌ Component '{component_name}' has no ID"
+        
+        # Validar dirección
+        if direction not in ['down', 'up', 'both']:
+            return f"❌ Invalid direction '{direction}'. Must be 'down', 'up', or 'both'"
+        
+        # Obtener árbol de dependencias
+        try:
+            tree_data = await self.db.dependencies.get_dependency_tree(
+                component_id=component_id,
+                direction=direction,
+                max_depth=max_depth
+            )
+            
+            if not tree_data:
+                return f"❌ Could not build hierarchy tree for '{component_name}'"
+            
+            # Construir árbol con estadísticas
+            tree = build_dependency_tree(tree_data, direction)
+            
+            # Formatear árbol
+            formatted = format_tree(tree, max_depth=max_depth)
+            
+            return formatted
+            
+        except Exception as e:
+            return f"❌ Error building hierarchy: {str(e)}"
     
 
 

@@ -163,6 +163,37 @@ async def get_component_docs(
     return await navigator.get_component_docs(component_name, project_id)
 
 
+@mcp.tool
+async def get_component_hierarchy(
+    component_name: Annotated[str, "Name of the component"],
+    project_id: Annotated[str, "Project ID"],
+    direction: Annotated[Optional[str], "Direction: 'down' (dependencies), 'up' (dependents), 'both' (default: 'down')"] = 'down',
+    max_depth: Annotated[Optional[int], "Maximum depth of the tree (default: 5)"] = 5
+) -> str:
+    """
+    Get the component hierarchy tree showing dependencies and dependents.
+    
+    Shows what components a component uses (dependencies) and what components use it (dependents).
+    Useful for understanding component relationships and impact analysis.
+    
+    Args:
+        component_name: Name of the component to analyze
+        project_id: Project ID where the component exists
+        direction: 
+            - 'down': Show dependencies (components this uses)
+            - 'up': Show dependents (components that use this)
+            - 'both': Show both dependencies and dependents
+        max_depth: Maximum depth to traverse (default: 5)
+    
+    Returns:
+        Formatted markdown tree showing component hierarchy
+    
+    Example:
+        get_component_hierarchy("HomePage", "my-app", direction="down", max_depth=3)
+    """
+    return await navigator.get_component_hierarchy(component_name, project_id, direction, max_depth)
+
+
 # ============================================
 # 🔄 SYNC TOOLS
 # ============================================
