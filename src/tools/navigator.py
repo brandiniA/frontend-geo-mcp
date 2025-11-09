@@ -18,6 +18,8 @@ from .utils import (
     truncate_description,
     format_usage_example,
     get_component_type_icon,
+    find_exact_or_first_component,
+    normalize_components_to_dicts,
 )
 from .utils.hierarchy_utils import build_dependency_tree, format_tree
 
@@ -92,14 +94,10 @@ class ComponentNavigator:
             return f"❌ Component '{component_name}' not found in project '{project_id}'"
         
         # Tomar el primer match exacto o el más cercano
-        comp = None
-        for c in components:
-            if c['name'] == component_name:
-                comp = c
-                break
+        comp = find_exact_or_first_component(components, component_name)
         
         if not comp:
-            comp = components[0]
+            return f"❌ Component '{component_name}' not found in project '{project_id}'"
         
         response = f"## 📋 Component Details: {comp['name']}\n\n"
         
@@ -258,23 +256,7 @@ class ComponentNavigator:
             return f"❌ No components found matching {query_str}{filter_str}"
         
         # Asegurar que todos los componentes son diccionarios
-        components_list = []
-        for comp in components:
-            if isinstance(comp, dict):
-                components_list.append(comp)
-            elif hasattr(comp, 'to_dict'):
-                components_list.append(comp.to_dict())
-            else:
-                # Fallback: crear diccionario manualmente
-                components_list.append({
-                    'id': getattr(comp, 'id', None),
-                    'name': getattr(comp, 'name', ''),
-                    'project_id': getattr(comp, 'project_id', ''),
-                    'file_path': getattr(comp, 'file_path', ''),
-                    'props': getattr(comp, 'props', []),
-                    'component_type': getattr(comp, 'component_type', None),
-                    'description': getattr(comp, 'description', None),
-                })
+        components_list = normalize_components_to_dicts(components)
         
         query_display = query if query else "all components"
         response = f"🔍 Found {len(components_list)} component(s) matching '{query_display}'"
@@ -428,15 +410,11 @@ class ComponentNavigator:
         if not components:
             return f"❌ Component '{component_name}' not found in project '{project_id}'"
         
-        # Tomar el primer match exacto
-        comp = None
-        for c in components:
-            if c['name'] == component_name:
-                comp = c
-                break
+        # Tomar el primer match exacto o el más cercano
+        comp = find_exact_or_first_component(components, component_name)
         
         if not comp:
-            comp = components[0]
+            return f"❌ Component '{component_name}' not found in project '{project_id}'"
         
         jsdoc = comp.get('jsdoc')
         
@@ -467,7 +445,7 @@ class ComponentNavigator:
             project_id: ID del proyecto
             direction: 'down' (dependencias), 'up' (dependientes), 'both'
             max_depth: Profundidad máxima del árbol (default: 5)
-        
+            
         Returns:
             Respuesta formateada en markdown con el árbol
         """

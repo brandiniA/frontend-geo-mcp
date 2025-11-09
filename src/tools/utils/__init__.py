@@ -20,6 +20,7 @@ from .navigator_formatter import (
     format_usage_example,
 )
 from .hierarchy_utils import build_dependency_tree, format_tree, detect_circular_dependencies
+from .component_search_utils import find_exact_or_first_component, normalize_components_to_dicts
 
 __all__ = [
     'format_relative_time',
@@ -51,4 +52,7 @@ __all__ = [
     'build_dependency_tree',
     'format_tree',
     'detect_circular_dependencies',
+    # Component search utils
+    'find_exact_or_first_component',
+    'normalize_components_to_dicts',
 ]
