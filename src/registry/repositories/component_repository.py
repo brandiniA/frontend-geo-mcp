@@ -14,6 +14,7 @@ from .utils import (
     make_serializable,
     safe_upsert,
 )
+from src.utils.import_resolver import resolve_imports_to_components
 
 
 class ComponentRepository(BaseRepository):
@@ -112,6 +113,7 @@ class ComponentRepository(BaseRepository):
                             'native_hooks_used': native_hooks,
                             'custom_hooks_used': valid_custom_hooks,
                             'imports': comp_data.get('imports', []),
+                            'component_imports': comp_data.get('component_imports', []),  # Nuevo formato estructurado
                             'exports': comp_data.get('exports', []),
                             'component_type': comp_data.get('component_type', 'component'),
                             'description': comp_data.get('description'),
@@ -119,7 +121,7 @@ class ComponentRepository(BaseRepository):
                         }
 
                         # Usar safe_upsert para insertar o actualizar
-                        safe_upsert(
+                        component = safe_upsert(
                             session=session,
                             model_class=Component,
                             unique_fields={
@@ -130,6 +132,41 @@ class ComponentRepository(BaseRepository):
                             data=component_data,
                             update_timestamp=True
                         )
+                        
+                        # Resolver y guardar dependencias si hay component_imports
+                        component_imports = comp_data.get('component_imports', [])
+                        if component_imports:
+                            try:
+                                # Eliminar dependencias antiguas antes de recalcular
+                                # Esto asegura que siempre usamos la lógica más reciente de resolución
+                                from src.models import ComponentDependency
+                                session.query(ComponentDependency).filter(
+                                    ComponentDependency.component_id == component.id
+                                ).delete()
+                                
+                                dependencies = resolve_imports_to_components(
+                                    component_imports=component_imports,
+                                    project_id=project_id,
+                                    current_file_path=comp_data['file_path'],
+                                    component_name=comp_data['name'],
+                                    db_session=session
+                                )
+                                
+                                # Guardar nuevas dependencias
+                                for dep in dependencies:
+                                    new_dep = ComponentDependency(
+                                        component_id=component.id,
+                                        depends_on_component_id=dep.get('depends_on_component_id'),
+                                        depends_on_name=dep['depends_on_name'],
+                                        from_path=dep['from_path'],
+                                        import_type=dep['import_type'],
+                                        is_external=dep.get('is_external', False),
+                                        project_id=project_id
+                                    )
+                                    session.add(new_dep)
+                            except Exception as dep_error:
+                                # No fallar si hay error resolviendo dependencias
+                                print(f"⚠️  Warning: Could not resolve dependencies for {comp_data['name']}: {dep_error}")
 
                         saved_count += 1
 
