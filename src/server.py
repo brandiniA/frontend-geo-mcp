@@ -4,7 +4,7 @@ Navigator and Code Reviewer for React projects
 """
 
 from fastmcp import FastMCP
-from typing import Optional, Annotated, Dict, Any
+from typing import Optional, Annotated, Dict, Any, Union
 import os
 import json
 from pathlib import Path
@@ -168,7 +168,7 @@ async def get_component_hierarchy(
     component_name: Annotated[str, "Name of the component"],
     project_id: Annotated[str, "Project ID"],
     direction: Annotated[Optional[str], "Direction: 'down' (dependencies), 'up' (dependents), 'both' (default: 'down')"] = 'down',
-    max_depth: Annotated[Optional[int], "Maximum depth of the tree (default: 5)"] = 5
+    max_depth: Annotated[Optional[Union[int, float]], "Maximum depth of the tree (default: 5)"] = 5
 ) -> str:
     """
     Get the component hierarchy tree showing dependencies and dependents.
@@ -183,7 +183,7 @@ async def get_component_hierarchy(
             - 'down': Show dependencies (components this uses)
             - 'up': Show dependents (components that use this)
             - 'both': Show both dependencies and dependents
-        max_depth: Maximum depth to traverse (default: 5)
+        max_depth: Maximum depth to traverse (default: 5). Accepts both integer and number types.
     
     Returns:
         Formatted markdown tree showing component hierarchy
@@ -191,7 +191,9 @@ async def get_component_hierarchy(
     Example:
         get_component_hierarchy("HomePage", "my-app", direction="down", max_depth=3)
     """
-    return await navigator.get_component_hierarchy(component_name, project_id, direction, max_depth)
+    # Convert max_depth to int if it's a float (from MCP clients that send number type)
+    max_depth_int = int(max_depth) if max_depth is not None else None
+    return await navigator.get_component_hierarchy(component_name, project_id, direction, max_depth_int)
 
 
 # ============================================
