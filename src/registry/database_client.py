@@ -17,6 +17,7 @@ from .repositories import (
     ProjectRepository,
     ComponentRepository,
     HookRepository,
+    DependencyRepository,
 )
 
 load_dotenv()
@@ -48,6 +49,7 @@ class DatabaseClient:
         self.projects = ProjectRepository(self.SessionLocal)
         self.components = ComponentRepository(self.SessionLocal)
         self.hooks = HookRepository(self.SessionLocal)
+        self.dependencies = DependencyRepository(self.SessionLocal)
 
         print("✅ Connected to database with SQLAlchemy")
 
