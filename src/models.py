@@ -134,6 +134,43 @@ class HookResponse(HookBase):
 
 
 # ============================================
+# FEATURE FLAG MODELS (Feature Flags)
+# ============================================
+
+class FeatureFlagBase(BaseModel):
+    """Modelo base para feature flags."""
+    name: str
+    file_path: str
+    default_value: Optional[Any] = None
+    value_type: Optional[str] = None  # 'boolean', 'number', 'string', 'array', 'object'
+    description: Optional[str] = None
+    possible_values: Optional[List[str]] = Field(default_factory=list)  # Para enums
+
+
+class FeatureFlagCreate(FeatureFlagBase):
+    """Modelo para crear feature flags."""
+    project_id: str
+
+
+class FeatureFlagUpdate(BaseModel):
+    """Modelo para actualizar feature flags."""
+    default_value: Optional[Any] = None
+    value_type: Optional[str] = None
+    description: Optional[str] = None
+    possible_values: Optional[List[str]] = None
+
+
+class FeatureFlagResponse(FeatureFlagBase):
+    """Modelo de respuesta para feature flags."""
+    id: int
+    project_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
 # SQLALCHEMY MODELS (Base de datos)
 # ============================================
 
@@ -153,6 +190,7 @@ class Project(Base):
     # Relaciones
     components = relationship("Component", back_populates="project", cascade="all, delete-orphan")
     hooks = relationship("Hook", back_populates="project", cascade="all, delete-orphan")
+    feature_flags = relationship("FeatureFlag", back_populates="project", cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convierte a diccionario."""
@@ -200,6 +238,7 @@ class Component(Base):
     project = relationship("Project", back_populates="components")
     dependencies = relationship("ComponentDependency", foreign_keys="ComponentDependency.component_id", back_populates="component")
     dependents = relationship("ComponentDependency", foreign_keys="ComponentDependency.depends_on_component_id", back_populates="depends_on_component")
+    feature_flags_used = relationship("ComponentFeatureFlag", back_populates="component", cascade="all, delete-orphan")
 
     # Índices para búsqueda rápida
     __table_args__ = (
@@ -318,5 +357,79 @@ class ComponentDependency(Base):
             'import_type': self.import_type,
             'is_external': self.is_external,
             'project_id': self.project_id,
+            'created_at': self.created_at,
+        }
+
+
+class FeatureFlag(Base):
+    """Modelo SQLAlchemy para feature flags."""
+    __tablename__ = "feature_flags"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    file_path = Column(String, nullable=False)
+    default_value = Column(JSON, nullable=True)
+    value_type = Column(String, nullable=True)  # 'boolean', 'number', 'string', 'array', 'object'
+    description = Column(String, nullable=True)
+    possible_values = Column(JSON, default=[])  # Para enums: ['CLASSIC', 'FLAT']
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relaciones
+    project = relationship("Project", back_populates="feature_flags")
+    component_usages = relationship("ComponentFeatureFlag", back_populates="feature_flag", cascade="all, delete-orphan")
+
+    # Índices para búsqueda rápida
+    __table_args__ = (
+        Index('idx_feature_flags_name', 'name'),
+        Index('idx_feature_flags_project', 'project_id'),
+        Index('idx_feature_flags_unique', 'name', 'project_id', unique=True),
+    )
+
+    def to_dict(self):
+        """Convierte a diccionario."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'project_id': self.project_id,
+            'file_path': self.file_path,
+            'default_value': self.default_value,
+            'value_type': self.value_type,
+            'description': self.description,
+            'possible_values': self.possible_values or [],
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+        }
+
+
+class ComponentFeatureFlag(Base):
+    """Modelo SQLAlchemy para relación muchos-a-muchos entre componentes y feature flags."""
+    __tablename__ = "component_feature_flags"
+
+    id = Column(Integer, primary_key=True)
+    component_id = Column(Integer, ForeignKey("components.id", ondelete="CASCADE"), nullable=False)
+    feature_flag_id = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), nullable=False)
+    usage_pattern = Column(String, nullable=True)  # Patrón detectado: 'features.FLAG_NAME', 'const { FLAG_NAME }', etc.
+    created_at = Column(DateTime, default=func.now())
+
+    # Relaciones
+    component = relationship("Component", back_populates="feature_flags_used")
+    feature_flag = relationship("FeatureFlag", back_populates="component_usages")
+
+    # Índices para búsqueda rápida
+    __table_args__ = (
+        Index('idx_component_feature_flag_component', 'component_id'),
+        Index('idx_component_feature_flag_flag', 'feature_flag_id'),
+        Index('idx_component_feature_flag_unique', 'component_id', 'feature_flag_id', unique=True),
+    )
+
+    def to_dict(self):
+        """Convierte a diccionario."""
+        return {
+            'id': self.id,
+            'component_id': self.component_id,
+            'feature_flag_id': self.feature_flag_id,
+            'usage_pattern': self.usage_pattern,
             'created_at': self.created_at,
         }
