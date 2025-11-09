@@ -8,6 +8,7 @@ from .project_repository import ProjectRepository
 from .component_repository import ComponentRepository
 from .hook_repository import HookRepository
 from .dependency_repository import DependencyRepository
+from .feature_flag_repository import FeatureFlagRepository
 from . import utils
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     'ComponentRepository',
     'HookRepository',
     'DependencyRepository',
+    'FeatureFlagRepository',
     'utils',
 ]
 
