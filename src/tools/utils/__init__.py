@@ -19,6 +19,7 @@ from .navigator_formatter import (
     truncate_description,
     format_usage_example,
 )
+from .hierarchy_utils import build_dependency_tree, format_tree, detect_circular_dependencies
 
 __all__ = [
     'format_relative_time',
@@ -46,4 +47,8 @@ __all__ = [
     'format_project_header',
     'truncate_description',
     'format_usage_example',
+    # Hierarchy utils
+    'build_dependency_tree',
+    'format_tree',
+    'detect_circular_dependencies',
 ]
