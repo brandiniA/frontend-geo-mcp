@@ -84,19 +84,50 @@ def format_tree(
     # Dirección
     if direction == 'down':
         result += "### 📥 Dependencies (Components this uses)\n\n"
+        # Construir árbol visual
+        if children:
+            tree_lines = _build_tree_lines(children, prefix="", is_last=True, depth=0, max_depth=max_depth, show_external=show_external)
+            result += "```\n"
+            result += tree_lines
+            result += "```\n"
+        else:
+            result += "*No dependencies found*\n"
     elif direction == 'up':
         result += "### 📤 Dependents (Components that use this)\n\n"
-    else:
+        # Construir árbol visual
+        if children:
+            tree_lines = _build_tree_lines(children, prefix="", is_last=True, depth=0, max_depth=max_depth, show_external=show_external)
+            result += "```\n"
+            result += tree_lines
+            result += "```\n"
+        else:
+            result += "*No dependents found*\n"
+    else:  # direction == 'both'
         result += "### 🔄 Full Hierarchy (Dependencies & Dependents)\n\n"
-    
-    # Construir árbol visual
-    if children:
-        tree_lines = _build_tree_lines(children, prefix="", is_last=True, depth=0, max_depth=max_depth, show_external=show_external)
-        result += "```\n"
-        result += tree_lines
-        result += "```\n"
-    else:
-        result += "*No dependencies found*\n"
+        
+        # Separar dependencias y dependientes
+        dependencies = [c for c in children if c.get('hierarchy_direction') == 'down']
+        dependents = [c for c in children if c.get('hierarchy_direction') == 'up']
+        
+        # Mostrar dependencias primero
+        if dependencies:
+            result += "#### 📥 Dependencies (Components this uses)\n\n"
+            tree_lines = _build_tree_lines(dependencies, prefix="", is_last=True, depth=0, max_depth=max_depth, show_external=show_external)
+            result += "```\n"
+            result += tree_lines
+            result += "```\n\n"
+        else:
+            result += "#### 📥 Dependencies\n*No dependencies found*\n\n"
+        
+        # Mostrar dependientes después
+        if dependents:
+            result += "#### 📤 Dependents (Components that use this)\n\n"
+            tree_lines = _build_tree_lines(dependents, prefix="", is_last=True, depth=0, max_depth=max_depth, show_external=show_external)
+            result += "```\n"
+            result += tree_lines
+            result += "```\n"
+        else:
+            result += "#### 📤 Dependents\n*No dependents found*\n"
     
     return result
 

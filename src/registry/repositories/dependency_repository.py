@@ -229,6 +229,17 @@ class DependencyRepository(BaseRepository):
         comp_dict = comp.to_dict()
         children = []
         
+        # When direction is 'both', use separate visited sets for dependencies and dependents
+        # to avoid conflicts where a component might appear in both directions.
+        # Start with the current visited set (which already includes component_id from line 222)
+        if direction == 'both':
+            # Use separate visited sets so dependencies don't block dependents
+            deps_visited = visited.copy()  # Already includes component_id
+            deps_visited_for_up = visited.copy()  # Already includes component_id
+        else:
+            deps_visited = visited
+            deps_visited_for_up = visited
+        
         if direction in ['down', 'both']:
             deps = session.query(ComponentDependency).filter(
                 ComponentDependency.component_id == component_id,
@@ -242,12 +253,13 @@ class DependencyRepository(BaseRepository):
                         dep.depends_on_component_id,
                         'down',
                         max_depth - 1,
-                        visited.copy(),
+                        deps_visited.copy(),
                         session
                     )
                     if child_tree:
                         child_tree['import_type'] = dep.import_type
                         child_tree['from_path'] = dep.from_path
+                        child_tree['hierarchy_direction'] = 'down'  # Mark as dependency
                         children.append(child_tree)
         
         if direction in ['up', 'both']:
@@ -261,20 +273,27 @@ class DependencyRepository(BaseRepository):
                     dep.component_id,
                     'up',
                     max_depth - 1,
-                    visited.copy(),
+                    deps_visited_for_up.copy(),
                     session
                 )
                 if child_tree:
                     child_tree['import_type'] = dep.import_type
                     child_tree['from_path'] = dep.from_path
+                    child_tree['hierarchy_direction'] = 'up'  # Mark as dependent
                     children.append(child_tree)
         
         visited.discard(component_id)
         
-        return {
+        result = {
             'component': comp_dict,
             'children': children,
             'depth': 5 - max_depth,
             'circular': False
         }
+        
+        # Preservar la dirección de jerarquía en los hijos recursivos
+        if direction in ['down', 'up']:
+            result['hierarchy_direction'] = direction
+        
+        return result
 
