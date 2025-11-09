@@ -3,7 +3,7 @@ Tests para las tools del MCP (ComponentNavigator).
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from tools.navigator import ComponentNavigator
 
 
@@ -123,4 +123,79 @@ class TestComponentNavigator:
         
         assert "Found" in result or "found" in result.lower()
         assert "button" in result.lower()
+    
+    @pytest.mark.asyncio
+    async def test_get_component_hierarchy_direction_both(self, mock_database_client, sample_component):
+        """Test para obtener jerarquía con direction='both'."""
+        navigator = ComponentNavigator(mock_database_client)
+        mock_database_client.search_components.return_value = [sample_component]
+        
+        # Crear mock para dependencies
+        mock_dependencies = Mock()
+        mock_dependencies.get_dependency_tree = AsyncMock()
+        
+        # Mock del árbol con dependencias y dependientes
+        mock_tree = {
+            'component': sample_component,
+            'children': [
+                {
+                    'component': {'name': 'Icon', 'file_path': 'Icon.tsx'},
+                    'hierarchy_direction': 'down',
+                    'children': []
+                },
+                {
+                    'component': {'name': 'HomePage', 'file_path': 'HomePage.tsx'},
+                    'hierarchy_direction': 'up',
+                    'children': []
+                }
+            ],
+            'direction': 'both'
+        }
+        mock_dependencies.get_dependency_tree.return_value = mock_tree
+        mock_database_client.dependencies = mock_dependencies
+        
+        result = await navigator.get_component_hierarchy(
+            "TestButton",
+            "test-project",
+            direction='both',
+            max_depth=5
+        )
+        
+        assert "Hierarchy" in result
+        assert "Dependencies" in result
+        assert "Dependents" in result
+    
+    @pytest.mark.asyncio
+    async def test_get_component_hierarchy_max_depth_types(self, mock_database_client, sample_component):
+        """Test que max_depth acepta diferentes tipos (int, float, string)."""
+        navigator = ComponentNavigator(mock_database_client)
+        mock_database_client.search_components.return_value = [sample_component]
+        
+        # Crear mock para dependencies
+        mock_dependencies = Mock()
+        mock_dependencies.get_dependency_tree = AsyncMock(return_value={
+            'component': sample_component,
+            'children': [],
+            'direction': 'down'
+        })
+        mock_database_client.dependencies = mock_dependencies
+        
+        # Test con int
+        result1 = await navigator.get_component_hierarchy(
+            "TestButton", "test-project", direction='down', max_depth=5
+        )
+        assert result1 is not None
+        
+        # Test con float (el navigator acepta float, la conversión a int ocurre en el servidor)
+        result2 = await navigator.get_component_hierarchy(
+            "TestButton", "test-project", direction='down', max_depth=5.0
+        )
+        assert result2 is not None
+        
+        # Verificar que se llamó get_dependency_tree
+        calls = mock_database_client.dependencies.get_dependency_tree.call_args_list
+        assert len(calls) >= 2
+        # Verificar que ambos llamados tienen max_depth (puede ser int o float, la conversión es en el servidor)
+        assert 'max_depth' in calls[-1][1]
+        assert calls[-1][1]['max_depth'] == 5 or calls[-1][1]['max_depth'] == 5.0
 

@@ -216,4 +216,54 @@ class TestHierarchyUtils:
         
         assert 'Dependents' in result
         assert 'HomePage' in result
+    
+    def test_format_tree_direction_both(self):
+        """Test formateo con dirección 'both' (dependencias y dependientes)"""
+        tree = {
+            'component': {
+                'name': 'Button',
+                'file_path': 'components/Button.tsx',
+                'component_type': 'component'
+            },
+            'children': [
+                {
+                    'component': {
+                        'name': 'Icon',
+                        'file_path': 'components/Icon.tsx',
+                        'component_type': 'component'
+                    },
+                    'children': [],
+                    'import_type': 'named',
+                    'from_path': './Icon',
+                    'hierarchy_direction': 'down'  # Dependencia
+                },
+                {
+                    'component': {
+                        'name': 'HomePage',
+                        'file_path': 'pages/HomePage.tsx',
+                        'component_type': 'page'
+                    },
+                    'children': [],
+                    'import_type': 'default',
+                    'from_path': './Button',
+                    'hierarchy_direction': 'up'  # Dependiente
+                }
+            ],
+            'direction': 'both',
+            'stats': {
+                'total_dependencies': 1,
+                'total_dependents': 1,
+                'max_depth': 1,
+                'has_circular': False
+            }
+        }
+        
+        result = format_tree(tree)
+        
+        # Debe mostrar ambas secciones
+        assert 'Full Hierarchy' in result
+        assert 'Dependencies' in result
+        assert 'Dependents' in result
+        assert 'Icon' in result  # Dependencia
+        assert 'HomePage' in result  # Dependiente
 
