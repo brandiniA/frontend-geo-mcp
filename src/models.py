@@ -273,6 +273,7 @@ class Hook(Base):
             'imports': self.imports or [],
             'exports': self.exports or [],
             'native_hooks_used': self.native_hooks_used or [],
+            'custom_hooks_used': self.custom_hooks_used or [],
             'jsdoc': self.jsdoc,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
