@@ -5,7 +5,7 @@ Extrae información de componentes sin necesidad de AST complejo.
 
 import re
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 # Importar utilidades de archivos
@@ -86,13 +86,18 @@ class ReactParser:
                 all_hooks = self._extract_hooks(file_content)
                 native_hooks, custom_hooks = self._separate_hooks(all_hooks)
                 
+                # Extraer imports estructurados y mantener compatibilidad
+                component_imports = self._extract_component_imports(file_content)
+                imports_legacy = self._extract_imports(file_content)
+                
                 component_info = {
                     'name': component_name,
                     'file_path': file_path,
                     'props': self._extract_props(file_content, component_name),
                     'native_hooks_used': native_hooks,
                     'custom_hooks_used': custom_hooks,
-                    'imports': self._extract_imports(file_content),
+                    'imports': imports_legacy,  # Mantener formato legacy para compatibilidad
+                    'component_imports': component_imports,  # Nuevo formato estructurado
                     'exports': self._extract_exports(file_content),
                     'component_type': self._determine_type(file_path),
                     'description': self._extract_description(file_content, component_name),
@@ -210,11 +215,26 @@ class ReactParser:
         Returns:
             True si parece ser factory o instancia, False si es componente
         """
-        # Patrón 1: Detectar si es una factory (function que retorna { })
-        # function Name() { ... return { ... } }
-        factory_pattern = rf'(?:function|const)\s+{name}\s*\([^)]*\)\s*\{{[^}}]*return\s*\{{'
+        # Patrón 1: Detectar si es una factory (function que retorna objeto literal { })
+        # function Name() { ... return { key: value } }
+        # Debe ser más específico: buscar return seguido directamente de { con propiedades (key: value)
+        # NO debe coincidir con componentes que retornan JSX (<div>)
+        factory_pattern = rf'(?:function|const)\s+{name}\s*\([^)]*\)\s*\{{[^}}]*return\s+\{{[^}}]*\w+\s*:'
         if re.search(factory_pattern, content, re.DOTALL):
-            return True
+            # Verificar que NO es JSX (no tiene < después del return)
+            # Si tiene < después del return, es un componente, no una factory
+            return_jsx_check = rf'(?:function|const)\s+{name}\s*\([^)]*\)\s*\{{[^}}]*return\s*[<(]'
+            if not re.search(return_jsx_check, content, re.DOTALL):
+                return True
+        
+        # Verificación adicional: si es export default function y retorna JSX, NO es factory
+        export_default_pattern = rf'export\s+default\s+function\s+{name}\s*\([^)]*\)\s*\{{'
+        if re.search(export_default_pattern, content):
+            # Verificar si retorna JSX
+            return_jsx_check = rf'export\s+default\s+function\s+{name}\s*\([^)]*\)\s*\{{[^}}]*return\s*[<(]'
+            if re.search(return_jsx_check, content, re.DOTALL):
+                # Es un componente React, NO es factory
+                return False
         
         # Patrón 2: Detectar si es instancia de factory
         # const instance = FactoryName()
@@ -226,15 +246,26 @@ class ReactParser:
         # Patrón 3: Detectar funciones normales (no componentes)
         # function utilFunction() { ... }
         # Normalmente solo tienen lógica, no retornan JSX
-        plain_function_pattern = rf'(?<!export\s)function\s+{name}\s*\([^)]*\)\s*\{{'
+        # NO aplicar si es export default function (componentes React)
+        plain_function_pattern = rf'function\s+{name}\s*\([^)]*\)\s*\{{'
         if re.search(plain_function_pattern, content):
+            # Verificar que NO es export default (componentes React)
+            export_default_check = rf'export\s+default\s+function\s+{name}\s*\([^)]*\)\s*\{{'
+            if re.search(export_default_check, content):
+                # Es export default, probablemente es componente, NO es factory
+                return False
+            
             # Verificar que no retorna JSX (no contiene <...>)
-            function_body_match = re.search(rf'function\s+{name}\s*\([^)]*\)\s*\{{(.*?)\}}', content, re.DOTALL)
+            function_body_match = re.search(rf'function\s+{name}\s*\([^)]*\)\s*\{{(.*?)(?:^export|\Z)', content, re.DOTALL | re.MULTILINE)
             if function_body_match:
                 body = function_body_match.group(1)
-                # Si el cuerpo no contiene JSX, es probable que NO sea componente
-                if '<' not in body or 'return' not in body[:100]:
-                    return True
+                # Si el cuerpo no contiene JSX (<...>), es probable que NO sea componente
+                # Pero si tiene 'return' seguido de '<' o '(', es componente
+                if '<' not in body:
+                    # Verificar si tiene return con JSX
+                    return_jsx_pattern = r'return\s*[<(]'
+                    if not re.search(return_jsx_pattern, body):
+                        return True
         
         return False
     
@@ -337,6 +368,10 @@ class ReactParser:
                 parameters = jsdoc.get('params', []) if jsdoc else []
                 return_type = jsdoc.get('returns', {}).get('type', 'unknown') if jsdoc else 'unknown'
                 
+                # Extraer imports estructurados y mantener compatibilidad
+                component_imports = self._extract_component_imports(file_content)
+                imports_legacy = self._extract_imports(file_content)
+                
                 hook_info = {
                     'name': hook_name,
                     'file_path': file_path,
@@ -344,7 +379,8 @@ class ReactParser:
                     'description': self._extract_description(file_content, hook_name),
                     'return_type': return_type,
                     'parameters': parameters,
-                    'imports': self._extract_imports(file_content),
+                    'imports': imports_legacy,  # Mantener formato legacy para compatibilidad
+                    'component_imports': component_imports,  # Nuevo formato estructurado
                     'exports': self._extract_exports(file_content),
                     'native_hooks_used': native_hooks,
                     'custom_hooks_used': custom_hooks,
@@ -373,11 +409,129 @@ class ReactParser:
         return bool(re.match(r'^use[A-Z]', name_without_ext))
     
     def _extract_imports(self, content: str) -> List[str]:
-        """Extrae imports."""
+        """
+        Extrae rutas de imports (método legacy para compatibilidad).
+        
+        Retorna solo las rutas de los módulos importados.
+        Para información completa de imports, usar _extract_component_imports().
+        """
         imports = re.findall(self.IMPORT_PATTERN, content)
         # Filtrar imports relativos muy largos
         imports = [imp for imp in imports if len(imp) < 100]
         return self._limit_and_sort(imports, limit=10)
+    
+    def _extract_component_imports(self, content: str) -> List[Dict[str, Any]]:
+        """
+        Extrae imports con nombres de componentes importados.
+        
+        Soporta múltiples patrones de import:
+        - Named imports: import { Button, Card } from './components'
+        - Default import: import Button from './Button'
+        - Mixed: import Button, { Card } from './components'
+        - Namespace: import * as Components from './components'
+        
+        Args:
+            content: Contenido del archivo
+            
+        Returns:
+            Lista de diccionarios con estructura:
+            [
+                {
+                    'imported_names': ['Button', 'Card'],
+                    'from_path': './components',
+                    'import_type': 'named'
+                },
+                {
+                    'imported_names': ['Button'],
+                    'from_path': './Button',
+                    'import_type': 'default'
+                }
+            ]
+        """
+        imports = []
+        
+        # Patrón 1: Named imports - import { Button, Card } from './components'
+        named_pattern = r'import\s+\{([^}]+)\}\s+from\s+[\'"]([^\'"]+)[\'"]'
+        for match in re.finditer(named_pattern, content):
+            names_str = match.group(1)
+            from_path = match.group(2)
+            
+            # Extraer nombres individuales (manejar alias: Button as Btn)
+            names = []
+            for name_part in names_str.split(','):
+                name_part = name_part.strip()
+                # Manejar alias: "Button as Btn" -> usar "Button"
+                if ' as ' in name_part:
+                    name_part = name_part.split(' as ')[0].strip()
+                if name_part:
+                    names.append(name_part)
+            
+            if names and len(from_path) < 100:
+                imports.append({
+                    'imported_names': names,
+                    'from_path': from_path,
+                    'import_type': 'named'
+                })
+        
+        # Patrón 2: Default import - import Button from './Button'
+        default_pattern = r'import\s+(\w+)\s+from\s+[\'"]([^\'"]+)[\'"]'
+        for match in re.finditer(default_pattern, content):
+            name = match.group(1)
+            from_path = match.group(2)
+            
+            # Evitar duplicados con named imports
+            if not any(imp['from_path'] == from_path and imp['import_type'] == 'default' 
+                      for imp in imports):
+                if len(from_path) < 100:
+                    imports.append({
+                        'imported_names': [name],
+                        'from_path': from_path,
+                        'import_type': 'default'
+                    })
+        
+        # Patrón 3: Mixed - import Button, { Card } from './components'
+        mixed_pattern = r'import\s+(\w+)\s*,\s*\{([^}]+)\}\s+from\s+[\'"]([^\'"]+)[\'"]'
+        for match in re.finditer(mixed_pattern, content):
+            default_name = match.group(1)
+            names_str = match.group(2)
+            from_path = match.group(3)
+            
+            # Extraer nombres named
+            names = [default_name]
+            for name_part in names_str.split(','):
+                name_part = name_part.strip()
+                if ' as ' in name_part:
+                    name_part = name_part.split(' as ')[0].strip()
+                if name_part:
+                    names.append(name_part)
+            
+            if names and len(from_path) < 100:
+                # Remover si ya existe un import de esta ruta
+                imports = [imp for imp in imports if not (
+                    imp['from_path'] == from_path and 
+                    imp['import_type'] in ['default', 'named']
+                )]
+                imports.append({
+                    'imported_names': names,
+                    'from_path': from_path,
+                    'import_type': 'mixed'
+                })
+        
+        # Patrón 4: Namespace - import * as Components from './components'
+        namespace_pattern = r'import\s+\*\s+as\s+(\w+)\s+from\s+[\'"]([^\'"]+)[\'"]'
+        for match in re.finditer(namespace_pattern, content):
+            namespace_name = match.group(1)
+            from_path = match.group(2)
+            
+            if len(from_path) < 100:
+                imports.append({
+                    'imported_names': [namespace_name],
+                    'from_path': from_path,
+                    'import_type': 'namespace'
+                })
+        
+        # Limitar número de imports
+        return imports[:20]
     
     def _extract_exports(self, content: str) -> List[str]:
         """Extrae exports."""
