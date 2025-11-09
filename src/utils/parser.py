@@ -20,9 +20,13 @@ class ReactParser:
     
     # Patrones para detectar componentes
     COMPONENT_PATTERNS = [
-        r'export\s+(?:default\s+)?(?:function|const)\s+(\w+)',
+        r'export\s+(?:default\s+)?(?:function|const|class)\s+(\w+)',
         r'const\s+(\w+)\s*=\s*\([^)]*\)\s*=>',
         r'function\s+(\w+)\s*\([^)]*\)',
+        r'class\s+(\w+)\s+extends\s+(?:Component|React\.Component|PureComponent|React\.PureComponent)',
+        # Clases que extienden otras clases (pueden ser componentes si tienen render o JSX)
+        # Este patrón es más amplio pero se filtra después con _is_valid_component_name
+        r'class\s+(\w+)\s+extends\s+\w+',
     ]
     
     # Patrones para props

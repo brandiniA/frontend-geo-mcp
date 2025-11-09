@@ -3,7 +3,7 @@ Utilidades para operaciones de archivos y directorios.
 """
 
 import os
-from typing import List, Callable, Set, Tuple, Optional
+from typing import List, Callable, Set, Tuple, Optional, Any
 from pathlib import Path
 
 
@@ -114,7 +114,8 @@ def scan_files(
     repo_path: str,
     file_filter: Callable[[str], bool],
     ignore_dirs: Optional[Set[str]] = None,
-    process_file: Optional[Callable[[str, str], List]] = None
+    process_file: Optional[Callable[[str, str], List]] = None,
+    progress_callback: Optional[Callable[[int, str], None]] = None
 ) -> List:
     """
     Escanea archivos en un directorio recursivamente con filtros.
@@ -151,6 +152,7 @@ def scan_files(
         ignore_dirs = BASE_IGNORE_DIRS
     
     results = []
+    files_processed = 0
     
     for root, dirs, files in os.walk(repo_path):
         # Filtrar directorios ignorados
@@ -171,12 +173,20 @@ def scan_files(
                     if content:
                         parsed = process_file(content, relative_path)
                         results.extend(parsed)
+                        files_processed += 1
+                        
+                        # Llamar callback de progreso cada 50 archivos o al final
+                        if progress_callback and (files_processed % 50 == 0 or files_processed == 1):
+                            progress_callback(files_processed, relative_path)
                 except Exception as e:
                     print(f"⚠️  Error procesando {relative_path}: {str(e)}")
                     continue
             else:
                 # Solo agregar la ruta si no hay procesamiento
                 results.append(relative_path)
+                files_processed += 1
+                if progress_callback and files_processed % 50 == 0:
+                    progress_callback(files_processed, relative_path)
     
     return results
 

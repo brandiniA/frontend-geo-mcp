@@ -20,6 +20,13 @@ class TestProjectIndexer:
         db = Mock()
         db.save_hooks = AsyncMock(return_value=5)
         db.save_components = AsyncMock(return_value=10)
+        db.save_feature_flags = AsyncMock(return_value=3)
+        db.get_components_by_project = AsyncMock(return_value=[
+            {'id': 1, 'name': 'Button', 'file_path': 'src/components/Button.jsx'},
+            {'id': 2, 'name': 'Footer', 'file_path': 'src/components/Footer.jsx'},
+        ])
+        db.get_feature_flag_by_name = AsyncMock(return_value={'id': 1, 'name': 'SHOW_FOOTER'})
+        db.save_component_feature_flag_usage = AsyncMock()
         return db
     
     @pytest.fixture
@@ -293,4 +300,109 @@ class TestProjectIndexer:
         
         assert result['status'] == 'failed'
         assert 'error' in result
+    
+    @pytest.mark.asyncio
+    async def test_scan_feature_flags_found(self, indexer, temp_repo):
+        """Test escaneo de feature flags cuando se encuentra el archivo."""
+        # Crear directorio config
+        config_dir = os.path.join(temp_repo, 'config')
+        os.makedirs(config_dir, exist_ok=True)
+        
+        # Crear archivo defaultFeatures.js
+        flags_file = os.path.join(config_dir, 'defaultFeatures.js')
+        with open(flags_file, 'w') as f:
+            f.write("""
+            const defaultFeatures = {
+              SHOW_FOOTER: true, // If true, shows the footer
+              ENABLE_DARK_MODE: false,
+              MAX_ITEMS: 10,
+            };
+            
+            export default defaultFeatures;
+            """)
+        
+        result = await indexer._scan_feature_flags(temp_repo)
+        
+        assert len(result) == 3
+        assert result[0]['name'] == 'SHOW_FOOTER'
+        assert result[0]['default_value'] is True
+        assert result[0]['description'] == 'If true, shows the footer'
+        assert result[0]['file_path'] == 'config/defaultFeatures.js'
+    
+    @pytest.mark.asyncio
+    async def test_scan_feature_flags_not_found(self, indexer, temp_repo):
+        """Test escaneo de feature flags cuando NO se encuentra el archivo."""
+        result = await indexer._scan_feature_flags(temp_repo)
+        
+        assert result == []
+    
+    @pytest.mark.asyncio
+    async def test_detect_feature_flag_usage(self, indexer, temp_repo, mock_db_client):
+        """Test detección de uso de feature flags en componentes."""
+        # Crear componente que usa feature flags
+        component_file = os.path.join(temp_repo, 'src', 'components', 'Footer.jsx')
+        os.makedirs(os.path.dirname(component_file), exist_ok=True)
+        
+        with open(component_file, 'w') as f:
+            f.write("""
+            import useWhitelabelFeatures from '../hooks/useWhitelabelFeatures';
+            
+            const Footer = () => {
+              const { SHOW_FOOTER } = useWhitelabelFeatures();
+              
+              if (SHOW_FOOTER) {
+                return <footer>Footer</footer>;
+              }
+              
+              return null;
+            };
+            """)
+        
+        flag_names = ['SHOW_FOOTER', 'ENABLE_DARK_MODE']
+        
+        await indexer._detect_feature_flag_usage(temp_repo, 'test-project', flag_names)
+        
+        # Verificar que se llamó save_component_feature_flag_usage
+        assert mock_db_client.save_component_feature_flag_usage.called
+    
+    @pytest.mark.asyncio
+    @patch.object(ProjectIndexer, '_clone_repo')
+    @patch.object(ProjectIndexer, '_scan_feature_flags')
+    @patch.object(ProjectIndexer, '_scan_hooks')
+    @patch.object(ProjectIndexer, '_scan_components')
+    @patch.object(ProjectIndexer, '_detect_feature_flag_usage')
+    @patch.object(ProjectIndexer, '_cleanup_repo')
+    async def test_index_project_with_feature_flags(
+        self,
+        mock_cleanup,
+        mock_detect_flags,
+        mock_scan_components,
+        mock_scan_hooks,
+        mock_scan_feature_flags,
+        mock_clone,
+        indexer,
+        mock_db_client
+    ):
+        """Test indexación completa con feature flags."""
+        mock_clone.return_value = '/tmp/test-repo'
+        mock_scan_feature_flags.return_value = [
+            {'name': 'SHOW_FOOTER', 'file_path': 'config/defaultFeatures.js', 'default_value': True}
+        ]
+        mock_scan_hooks.return_value = []
+        mock_scan_components.return_value = [
+            {'name': 'Button', 'file_path': 'components/Button.jsx'}
+        ]
+        
+        result = await indexer.index_project(
+            'test-project',
+            'https://github.com/test/repo',
+            'main'
+        )
+        
+        assert result['status'] == 'success'
+        assert result['feature_flags_found'] == 1
+        assert result['feature_flags_saved'] == 1
+        mock_db_client.save_feature_flags.assert_called_once()
+        mock_detect_flags.assert_called_once()
+        mock_cleanup.assert_called_once()
 
