@@ -168,7 +168,7 @@ async def get_component_hierarchy(
     component_name: Annotated[str, "Name of the component"],
     project_id: Annotated[str, "Project ID"],
     direction: Annotated[Optional[str], "Direction: 'down' (dependencies), 'up' (dependents), 'both' (default: 'down')"] = 'down',
-    max_depth: Annotated[Optional[Union[int, float]], "Maximum depth of the tree (default: 5)"] = 5
+    max_depth: Annotated[Optional[Union[int, float, str]], "Maximum depth of the tree (default: 5). Accepts integer, number, or numeric string."] = 5
 ) -> str:
     """
     Get the component hierarchy tree showing dependencies and dependents.
@@ -191,8 +191,11 @@ async def get_component_hierarchy(
     Example:
         get_component_hierarchy("HomePage", "my-app", direction="down", max_depth=3)
     """
-    # Convert max_depth to int if it's a float (from MCP clients that send number type)
-    max_depth_int = int(max_depth) if max_depth is not None else None
+    # Convert max_depth to int if it's a float or string (from MCP clients that send number/string type)
+    if max_depth is not None:
+        max_depth_int = int(float(max_depth))  # Handles int, float, and numeric strings
+    else:
+        max_depth_int = None
     return await navigator.get_component_hierarchy(component_name, project_id, direction, max_depth_int)
 
 
