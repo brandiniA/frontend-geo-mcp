@@ -200,6 +200,186 @@ async def get_component_hierarchy(
 
 
 # ============================================
+# 🚩 FEATURE FLAG TOOLS
+# ============================================
+
+@mcp.tool
+async def search_by_feature_flag(
+    flag_name: Annotated[str, "Feature flag name to search"],
+    project_id: Annotated[Optional[str], "Filter by specific project"] = None
+) -> str:
+    """
+    Find all components that use a specific feature flag.
+    
+    Example: search_by_feature_flag("SHOW_PURCHASE_FOOTER")
+    Example: search_by_feature_flag("SHOW_PURCHASE_FOOTER", project_id="main-app")
+    """
+    if not project_id:
+        return "❌ project_id is required for feature flag search"
+    
+    components = await db_client.get_components_using_flag(flag_name, project_id)
+    
+    if not components:
+        return f"🔍 No components found using feature flag '{flag_name}' in project '{project_id}'"
+    
+    response = f"🚩 **Components using '{flag_name}':**\n\n"
+    for comp in components:
+        response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+    
+    return response
+
+
+@mcp.tool
+async def list_feature_flags(
+    project_id: Annotated[Optional[str], "Filter by project"] = None
+) -> str:
+    """
+    List all feature flags in a project.
+    
+    Example: list_feature_flags(project_id="main-app")
+    """
+    if not project_id:
+        return "❌ project_id is required"
+    
+    flags = await db_client.get_feature_flags_by_project(project_id)
+    
+    if not flags:
+        return f"🚩 No feature flags found in project '{project_id}'"
+    
+    response = f"🚩 **Feature Flags in '{project_id}':**\n\n"
+    for flag in flags:
+        response += f"- **{flag['name']}**\n"
+        if flag.get('description'):
+            response += f"  - Description: {flag['description']}\n"
+        if flag.get('default_value') is not None:
+            response += f"  - Default: {flag['default_value']}\n"
+        if flag.get('value_type'):
+            response += f"  - Type: {flag['value_type']}\n"
+        if flag.get('possible_values'):
+            response += f"  - Possible values: {', '.join(flag['possible_values'])}\n"
+        response += "\n"
+    
+    return response
+
+
+@mcp.tool
+async def get_feature_flag_details(
+    flag_name: Annotated[str, "Feature flag name"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get detailed information about a specific feature flag.
+    Includes default value, type, description, and components that use it.
+    
+    Example: get_feature_flag_details("SHOW_PURCHASE_FOOTER", "main-app")
+    """
+    flag = await db_client.get_feature_flag_by_name(flag_name, project_id)
+    
+    if not flag:
+        return f"❌ Feature flag '{flag_name}' not found in project '{project_id}'"
+    
+    response = f"🚩 **Feature Flag: {flag_name}**\n\n"
+    
+    if flag.get('description'):
+        response += f"**Description:** {flag['description']}\n\n"
+    
+    if flag.get('default_value') is not None:
+        response += f"**Default Value:** {flag['default_value']}\n"
+    
+    if flag.get('value_type'):
+        response += f"**Type:** {flag['value_type']}\n"
+    
+    if flag.get('possible_values'):
+        response += f"**Possible Values:** {', '.join(flag['possible_values'])}\n"
+    
+    if flag.get('file_path'):
+        response += f"**File:** `{flag['file_path']}`\n"
+    
+    # Obtener componentes que usan este flag
+    components = await db_client.get_components_using_flag(flag_name, project_id)
+    if components:
+        response += f"\n**Used in {len(components)} component(s):**\n"
+        for comp in components:
+            response += f"- {comp['name']} (`{comp['file_path']}`)\n"
+    else:
+        response += "\n⚠️ **Not used in any component**\n"
+    
+    return response
+
+
+@mcp.tool
+async def get_unused_feature_flags(
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get feature flags that are defined but not used in any component.
+    
+    Example: get_unused_feature_flags("main-app")
+    """
+    unused_flags = await db_client.get_unused_feature_flags(project_id)
+    
+    if not unused_flags:
+        return f"✅ All feature flags in project '{project_id}' are being used!"
+    
+    response = f"⚠️ **Unused Feature Flags in '{project_id}':**\n\n"
+    for flag in unused_flags:
+        response += f"- **{flag['name']}**"
+        if flag.get('description'):
+            response += f" - {flag['description']}"
+        response += "\n"
+    
+    return response
+
+
+@mcp.tool
+async def map_feature_flags_file(
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Map and show all feature flags extracted from defaultFeatures.js file.
+    Useful for debugging if flags are being parsed correctly.
+    
+    Example: map_feature_flags_file("main-app")
+    """
+    flags = await db_client.get_feature_flags_by_project(project_id)
+    
+    if not flags:
+        return f"❌ No feature flags found in project '{project_id}'. Make sure the project has been synced."
+    
+    # Agrupar por archivo
+    flags_by_file = {}
+    for flag in flags:
+        file_path = flag.get('file_path', 'unknown')
+        if file_path not in flags_by_file:
+            flags_by_file[file_path] = []
+        flags_by_file[file_path].append(flag)
+    
+    response = f"📋 **Feature Flags Mapped from defaultFeatures.js**\n\n"
+    response += f"**Total flags:** {len(flags)}\n\n"
+    
+    for file_path, file_flags in flags_by_file.items():
+        response += f"**File:** `{file_path}` ({len(file_flags)} flags)\n\n"
+        
+        # Ordenar alfabéticamente
+        file_flags_sorted = sorted(file_flags, key=lambda x: x['name'])
+        
+        for flag in file_flags_sorted:
+            response += f"- **{flag['name']}**"
+            if flag.get('default_value') is not None:
+                response += f" = `{flag['default_value']}`"
+            if flag.get('value_type'):
+                response += f" ({flag['value_type']})"
+            if flag.get('description'):
+                response += f" // {flag['description']}"
+            if flag.get('possible_values'):
+                response += f" [Values: {', '.join(flag['possible_values'])}]"
+            response += "\n"
+        response += "\n"
+    
+    return response
+
+
+# ============================================
 # 🔄 SYNC TOOLS
 # ============================================
 

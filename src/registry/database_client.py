@@ -18,6 +18,7 @@ from .repositories import (
     ComponentRepository,
     HookRepository,
     DependencyRepository,
+    FeatureFlagRepository,
 )
 
 load_dotenv()
@@ -50,6 +51,7 @@ class DatabaseClient:
         self.components = ComponentRepository(self.SessionLocal)
         self.hooks = HookRepository(self.SessionLocal)
         self.dependencies = DependencyRepository(self.SessionLocal)
+        self.feature_flags = FeatureFlagRepository(self.SessionLocal)
 
         print("✅ Connected to database with SQLAlchemy")
 
@@ -160,6 +162,51 @@ class DatabaseClient:
     ) -> Optional[Dict[str, Any]]:
         """Obtiene un custom hook por nombre y proyecto."""
         return await self.hooks.get_by_name(hook_name, project_id)
+
+    # ============================================
+    # FEATURE FLAG OPERATIONS (delegadas a FeatureFlagRepository)
+    # ============================================
+
+    async def save_feature_flags(self, flags: List[Dict[str, Any]], project_id: str) -> int:
+        """Guarda feature flags en la base de datos."""
+        return await self.feature_flags.save(flags, project_id)
+
+    async def get_feature_flags_by_project(self, project_id: str) -> List[Dict[str, Any]]:
+        """Obtiene todos los feature flags de un proyecto."""
+        return await self.feature_flags.get_by_project(project_id)
+
+    async def get_feature_flag_by_name(
+        self, flag_name: str, project_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Obtiene un feature flag por nombre y proyecto."""
+        return await self.feature_flags.get_by_name(flag_name, project_id)
+
+    async def search_feature_flags(
+        self, query: str, project_id: Optional[str] = None, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Busca feature flags por nombre."""
+        return await self.feature_flags.search(query, project_id, limit)
+
+    async def get_components_using_flag(
+        self, flag_name: str, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """Obtiene todos los componentes que usan un flag específico."""
+        return await self.feature_flags.get_components_using_flag(flag_name, project_id)
+
+    async def get_unused_feature_flags(self, project_id: str) -> List[Dict[str, Any]]:
+        """Obtiene flags definidos que NO se usan en ningún componente."""
+        return await self.feature_flags.get_unused_flags(project_id)
+
+    async def save_component_feature_flag_usage(
+        self,
+        component_id: int,
+        feature_flag_id: int,
+        usage_pattern: Optional[str] = None
+    ) -> None:
+        """Guarda la relación entre un componente y un feature flag."""
+        return await self.feature_flags.save_component_flag_usage(
+            component_id, feature_flag_id, usage_pattern
+        )
 
     # ============================================
     # CONTEXT MANAGER
