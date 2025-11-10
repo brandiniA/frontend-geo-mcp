@@ -7,8 +7,8 @@ import os
 import tempfile
 import shutil
 from pathlib import Path
+from unittest.mock import Mock, AsyncMock
 from src.utils.indexer import ProjectIndexer
-from src.registry.database_client import DatabaseClient
 
 
 @pytest.fixture
@@ -20,10 +20,20 @@ def temp_repo():
 
 
 @pytest.fixture
-def indexer():
+def mock_db_client():
+    """Fixture para DatabaseClient mock."""
+    db = Mock()
+    db.search_components = AsyncMock(return_value=[])
+    db.update_component_container_file_path = AsyncMock(return_value=True)
+    db.get_feature_flag_by_name = AsyncMock(return_value={'id': 1, 'name': 'SHOW_FIELD'})
+    db.save_component_feature_flag_usage = AsyncMock()
+    return db
+
+
+@pytest.fixture
+def indexer(mock_db_client):
     """Fixture para crear un indexer."""
-    db_client = DatabaseClient()
-    return ProjectIndexer(db_client)
+    return ProjectIndexer(mock_db_client)
 
 
 def test_detect_container_file(temp_repo, indexer):

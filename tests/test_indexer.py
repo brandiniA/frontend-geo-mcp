@@ -25,8 +25,12 @@ class TestProjectIndexer:
             {'id': 1, 'name': 'Button', 'file_path': 'src/components/Button.jsx'},
             {'id': 2, 'name': 'Footer', 'file_path': 'src/components/Footer.jsx'},
         ])
+        db.get_hooks_by_project = AsyncMock(return_value=[])
         db.get_feature_flag_by_name = AsyncMock(return_value={'id': 1, 'name': 'SHOW_FOOTER'})
         db.save_component_feature_flag_usage = AsyncMock()
+        db.save_hook_feature_flag_usage = AsyncMock()
+        db.search_components = AsyncMock(return_value=[])
+        db.update_component_container_file_path = AsyncMock(return_value=True)
         return db
     
     @pytest.fixture
