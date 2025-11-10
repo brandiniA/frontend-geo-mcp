@@ -45,3 +45,8 @@ logs/
 *.tmp
 tmp/
 temp/
+
+# Analysis and diagnostic files (temporary documentation)
+analysis/
+diagnostic_output.txt
+diagnostic_report.json
