@@ -689,6 +689,55 @@ async def get_stats() -> str:
 
 
 # ============================================
+# 📦 BARREL EXPORT TOOLS
+# ============================================
+
+@mcp.tool
+async def get_barrel_exports(
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get all barrel exports in a project with their resolution status.
+    Shows resolved and unresolved barrel exports, including containers.
+    
+    Example: get_barrel_exports("platform-funnel")
+    """
+    return await navigator.get_barrel_exports(project_id)
+
+
+# ============================================
+# 🔄 DEPENDENCY ANALYSIS TOOLS
+# ============================================
+
+@mcp.tool
+async def find_circular_dependencies(
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Detect circular dependencies between components.
+    Useful for identifying architectural issues and potential infinite loops.
+    
+    Example: find_circular_dependencies("platform-funnel")
+    """
+    return await navigator.find_circular_dependencies(project_id)
+
+
+@mcp.tool
+async def get_unresolved_imports(
+    project_id: Annotated[str, "Project ID"],
+    limit: Annotated[Optional[int], "Maximum number of results to show (default: 50)"] = 50
+) -> str:
+    """
+    Get imports that could not be resolved to components.
+    Helps identify missing components, indexing issues, or barrel export problems.
+    
+    Example: get_unresolved_imports("platform-funnel")
+    Example: get_unresolved_imports("platform-funnel", limit=100)
+    """
+    return await navigator.get_unresolved_imports(project_id, limit)
+
+
+# ============================================
 # 🎯 PROMPTS - Ejecución Automática de Tools
 # ============================================
 

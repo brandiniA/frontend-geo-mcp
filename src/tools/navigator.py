@@ -2,6 +2,7 @@
 Navigator tool para búsqueda y exploración de componentes React.
 """
 
+import asyncio
 from typing import List, Dict, Optional, Any
 from registry.database_client import DatabaseClient
 from .utils import (
@@ -1043,6 +1044,222 @@ class ComponentNavigator:
         
         response += f"**Total Components Analyzed:** {len(components)}\n"
         response += f"**Total Custom Hooks:** {len(hooks)}\n"
+        
+        return response
+    
+    async def get_barrel_exports(
+        self,
+        project_id: str
+    ) -> str:
+        """
+        Obtiene todos los barrel exports de un proyecto con su estado de resolución.
+        
+        Args:
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de barrel exports formateada
+        """
+        barrels = await self.db.barrel_exports.get_all_by_project(project_id)
+        
+        if not barrels:
+            return f"📦 No barrel exports found in project '{project_id}'"
+        
+        total = len(barrels)
+        resolved = sum(1 for b in barrels if b.get('exported_component_id'))
+        unresolved = total - resolved
+        resolution_rate = (resolved / total * 100) if total > 0 else 0
+        
+        response = f"📦 **Barrel Exports in '{project_id}':**\n\n"
+        response += f"**Total:** {total}\n"
+        response += f"**Resolved:** {resolved} ({resolution_rate:.1f}%)\n"
+        response += f"**Unresolved:** {unresolved}\n\n"
+        
+        # Agrupar por estado
+        resolved_barrels = [b for b in barrels if b.get('exported_component_id')]
+        unresolved_barrels = [b for b in barrels if not b.get('exported_component_id')]
+        
+        if resolved_barrels:
+            response += f"### ✅ Resolved ({len(resolved_barrels)})\n\n"
+            for barrel in resolved_barrels[:20]:  # Limitar a 20 para no saturar
+                comp_id = barrel.get('exported_component_id')
+                comp_name = barrel.get('exported_name', 'Unknown')
+                directory = barrel.get('directory_path', 'Unknown')
+                is_container = barrel.get('is_container', False)
+                container_marker = " (Container)" if is_container else ""
+                response += f"- **{comp_name}**{container_marker}\n"
+                response += f"  - Directory: `{directory}`\n"
+                response += f"  - Component ID: {comp_id}\n"
+            if len(resolved_barrels) > 20:
+                response += f"\n... and {len(resolved_barrels) - 20} more resolved barrel exports\n"
+            response += "\n"
+        
+        if unresolved_barrels:
+            response += f"### ⚠️ Unresolved ({len(unresolved_barrels)})\n\n"
+            for barrel in unresolved_barrels[:20]:  # Limitar a 20
+                directory = barrel.get('directory_path', 'Unknown')
+                source = barrel.get('source_file_path', 'Unknown')
+                is_container = barrel.get('is_container', False)
+                container_marker = " (Container)" if is_container else ""
+                response += f"- `{directory}`{container_marker}\n"
+                response += f"  - Source: `{source}`\n"
+                if barrel.get('notes'):
+                    response += f"  - Note: {barrel['notes']}\n"
+            if len(unresolved_barrels) > 20:
+                response += f"\n... and {len(unresolved_barrels) - 20} more unresolved barrel exports\n"
+        
+        return response
+    
+    async def find_circular_dependencies(
+        self,
+        project_id: str
+    ) -> str:
+        """
+        Detecta dependencias circulares entre componentes.
+        
+        Args:
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de ciclos detectados
+        """
+        components = await self.db.get_components_by_project(project_id)
+        
+        if not components:
+            return f"❌ No components found in project '{project_id}'"
+        
+        # Construir grafo de dependencias
+        graph = {}
+        for comp in components:
+            comp_id = comp['id']
+            deps = await self.db.dependencies.get_dependencies(comp_id)
+            graph[comp_id] = [dep['id'] for dep in deps if dep.get('id')]
+        
+        # Detectar ciclos usando DFS
+        cycles = []
+        visited = set()
+        rec_stack = set()
+        
+        def dfs(node, path):
+            if node in rec_stack:
+                # Encontramos un ciclo
+                cycle_start = path.index(node)
+                cycle = path[cycle_start:] + [node]
+                cycles.append(cycle)
+                return
+            
+            if node in visited:
+                return
+            
+            visited.add(node)
+            rec_stack.add(node)
+            
+            for neighbor in graph.get(node, []):
+                dfs(neighbor, path + [node])
+            
+            rec_stack.remove(node)
+        
+        for comp_id in graph:
+            if comp_id not in visited:
+                dfs(comp_id, [])
+        
+        if not cycles:
+            return f"✅ No circular dependencies found in project '{project_id}'"
+        
+        # Obtener nombres de componentes
+        comp_dict = {comp['id']: comp for comp in components}
+        
+        response = f"⚠️ **Circular Dependencies Found in '{project_id}':** ({len(cycles)})\n\n"
+        
+        for i, cycle in enumerate(cycles, 1):
+            cycle_names = [comp_dict.get(cid, {}).get('name', f'ID:{cid}') for cid in cycle[:-1]]
+            response += f"### Cycle {i}\n\n"
+            response += " → ".join(cycle_names) + f" → {cycle_names[0]}\n\n"
+            
+            # Mostrar detalles
+            for j, comp_id in enumerate(cycle[:-1]):
+                comp = comp_dict.get(comp_id, {})
+                response += f"{j+1}. **{comp.get('name', 'Unknown')}** (`{comp.get('file_path', 'Unknown')}`)\n"
+        
+        response += "\n💡 **Recommendation:** Refactor these components to break the circular dependency.\n"
+        
+        return response
+    
+    async def get_unresolved_imports(
+        self,
+        project_id: str,
+        limit: Optional[int] = 50
+    ) -> str:
+        """
+        Obtiene imports que no pudieron ser resueltos a componentes.
+        
+        Args:
+            project_id: ID del proyecto
+            limit: Límite de resultados a mostrar
+            
+        Returns:
+            Lista de imports no resueltos
+        """
+        def _get_unresolved():
+            from src.models import ComponentDependency, Component
+            from registry.repositories.utils import db_session
+            with db_session(self.db.SessionLocal) as session:
+                # Obtener dependencias sin depends_on_component_id
+                unresolved = session.query(ComponentDependency).join(
+                    Component,
+                    ComponentDependency.component_id == Component.id
+                ).filter(
+                    Component.project_id == project_id,
+                    ComponentDependency.depends_on_component_id.is_(None),
+                    ComponentDependency.is_external == False
+                ).limit(limit or 100).all()
+                
+                result = []
+                for dep in unresolved:
+                    comp = dep.component
+                    result.append({
+                        'component_name': comp.name if comp else 'Unknown',
+                        'component_path': comp.file_path if comp else 'Unknown',
+                        'import_name': dep.depends_on_name,
+                        'from_path': dep.from_path,
+                        'import_type': dep.import_type
+                    })
+                
+                return result
+        
+        unresolved = await asyncio.to_thread(_get_unresolved)
+        
+        if not unresolved:
+            return f"✅ All imports resolved in project '{project_id}'!"
+        
+        total_unresolved = len(unresolved)
+        shown = min(total_unresolved, limit or 50)
+        
+        response = f"⚠️ **Unresolved Imports in '{project_id}':** ({total_unresolved})\n\n"
+        response += f"Showing {shown} of {total_unresolved}:\n\n"
+        
+        # Agrupar por componente
+        by_component = {}
+        for imp in unresolved:
+            comp_name = imp['component_name']
+            if comp_name not in by_component:
+                by_component[comp_name] = []
+            by_component[comp_name].append(imp)
+        
+        for comp_name, imports in list(by_component.items())[:20]:
+            response += f"### 📦 {comp_name}\n\n"
+            response += f"**File:** `{imports[0]['component_path']}`\n\n"
+            response += "**Unresolved imports:**\n"
+            for imp in imports[:10]:  # Máximo 10 por componente
+                response += f"- `{imp['import_name']}` from `{imp['from_path']}` ({imp['import_type']})\n"
+            if len(imports) > 10:
+                response += f"... and {len(imports) - 10} more\n"
+            response += "\n"
+        
+        if len(by_component) > 20:
+            response += f"... and {len(by_component) - 20} more components with unresolved imports\n"
+        
+        response += "\n💡 **Recommendation:** Check if these components exist, are indexed, or use barrel exports.\n"
         
         return response
 
