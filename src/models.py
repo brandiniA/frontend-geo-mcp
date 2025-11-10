@@ -231,6 +231,7 @@ class Component(Base):
     # component_imports: JSON array con información estructurada de imports
     # Ej: [{"imported_names": ["Button", "Card"], "from_path": "./components", "import_type": "named"}]
     component_imports = Column(JSON, nullable=True)
+    container_file_path = Column(String, nullable=True)  # Ruta del archivo container si el componente está envuelto por uno
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -263,6 +264,7 @@ class Component(Base):
             'description': self.description,
             'jsdoc': self.jsdoc,
             'component_imports': self.component_imports or [],
+            'container_file_path': self.container_file_path,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }
@@ -413,6 +415,12 @@ class ComponentFeatureFlag(Base):
     component_id = Column(Integer, ForeignKey("components.id", ondelete="CASCADE"), nullable=False)
     feature_flag_id = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), nullable=False)
     usage_pattern = Column(String, nullable=True)  # Patrón detectado: 'features.FLAG_NAME', 'const { FLAG_NAME }', etc.
+    usage_location = Column(String, default='component')  # 'component' | 'container' - Dónde se usa el flag
+    usage_context = Column(String, nullable=True)  # 'mapStateToProps' | 'mapDispatchToProps' | 'mergeProps' | 'render' | 'useEffect' | etc.
+    container_file_path = Column(String, nullable=True)  # Ruta del archivo container (solo si usage_location='container')
+    usage_type = Column(String, nullable=True)  # 'conditional_logic' | 'array_construction' | 'conditional_validation' | 'prop_passing'
+    combined_with = Column(JSON, nullable=True)  # Array de otros flags si se combinan
+    logic = Column(String, nullable=True)  # 'AND' | 'OR' si se combinan flags
     created_at = Column(DateTime, default=func.now())
 
     # Relaciones
@@ -423,7 +431,9 @@ class ComponentFeatureFlag(Base):
     __table_args__ = (
         Index('idx_component_feature_flag_component', 'component_id'),
         Index('idx_component_feature_flag_flag', 'feature_flag_id'),
-        Index('idx_component_feature_flag_unique', 'component_id', 'feature_flag_id', unique=True),
+        Index('idx_component_feature_flag_unique', 'component_id', 'feature_flag_id', 'usage_location', unique=True),
+        Index('idx_component_feature_flag_location', 'usage_location'),
+        Index('idx_component_feature_flag_container', 'container_file_path'),
     )
 
     def to_dict(self):
@@ -433,6 +443,12 @@ class ComponentFeatureFlag(Base):
             'component_id': self.component_id,
             'feature_flag_id': self.feature_flag_id,
             'usage_pattern': self.usage_pattern,
+            'usage_location': self.usage_location or 'component',
+            'usage_context': self.usage_context,
+            'container_file_path': self.container_file_path,
+            'usage_type': self.usage_type,
+            'combined_with': self.combined_with or [],
+            'logic': self.logic,
             'created_at': self.created_at,
         }
 
