@@ -208,6 +208,35 @@ class DatabaseClient:
             component_id, feature_flag_id, usage_pattern
         )
 
+    async def get_flags_for_component(
+        self, component_id: int, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """Obtiene todos los feature flags que usa un componente específico."""
+        return await self.feature_flags.get_flags_for_component(component_id, project_id)
+
+    async def get_flags_for_hook(
+        self, hook_id: int, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """Obtiene todos los feature flags que usa un hook específico."""
+        return await self.feature_flags.get_flags_for_hook(hook_id, project_id)
+
+    async def save_hook_feature_flag_usage(
+        self,
+        hook_id: int,
+        feature_flag_id: int,
+        usage_pattern: Optional[str] = None
+    ) -> None:
+        """Guarda la relación entre un hook y un feature flag."""
+        return await self.feature_flags.save_hook_flag_usage(
+            hook_id, feature_flag_id, usage_pattern
+        )
+
+    async def get_hooks_using_flag(
+        self, flag_name: str, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """Obtiene todos los hooks que usan un flag específico."""
+        return await self.feature_flags.get_hooks_using_flag(flag_name, project_id)
+
     # ============================================
     # CONTEXT MANAGER
     # ============================================

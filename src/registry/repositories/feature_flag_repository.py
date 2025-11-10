@@ -5,7 +5,7 @@ Repositorio para operaciones de FeatureFlag.
 import asyncio
 from typing import List, Optional, Dict, Any
 
-from src.models import FeatureFlag, ComponentFeatureFlag, Component
+from src.models import FeatureFlag, ComponentFeatureFlag, Component, HookFeatureFlag, Hook
 from .base_repository import BaseRepository
 from .utils import (
     db_session,
@@ -262,4 +262,175 @@ class FeatureFlagRepository(BaseRepository):
                     raise
 
         return await asyncio.to_thread(_save)
+
+    async def get_flags_for_component(
+        self, component_id: int, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene todos los feature flags que usa un componente específico.
+        
+        Args:
+            component_id: ID del componente
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de feature flags usados por el componente
+        """
+        def _get():
+            with db_session(self.SessionLocal) as session:
+                # Obtener relaciones componente-flag
+                component_flags = session.query(ComponentFeatureFlag).filter(
+                    ComponentFeatureFlag.component_id == component_id
+                ).all()
+                
+                if not component_flags:
+                    return []
+                
+                # Obtener los IDs de los flags
+                flag_ids = [cf.feature_flag_id for cf in component_flags]
+                
+                # Obtener los flags con sus detalles
+                flags = session.query(FeatureFlag).filter(
+                    FeatureFlag.id.in_(flag_ids),
+                    FeatureFlag.project_id == project_id
+                ).all()
+                
+                # Convertir a diccionarios y agregar el patrón de uso
+                result = []
+                flag_dict = {f.id: f for f in flags}
+                for cf in component_flags:
+                    if cf.feature_flag_id in flag_dict:
+                        flag_data = model_to_dict(flag_dict[cf.feature_flag_id])
+                        flag_data['usage_pattern'] = cf.usage_pattern
+                        result.append(flag_data)
+                
+                return result
+
+        return await asyncio.to_thread(_get)
+
+    async def get_flags_for_hook(
+        self, hook_id: int, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene todos los feature flags que usa un hook específico.
+        
+        Args:
+            hook_id: ID del hook
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de feature flags usados por el hook
+        """
+        def _get():
+            with db_session(self.SessionLocal) as session:
+                # Obtener relaciones hook-flag
+                hook_flags = session.query(HookFeatureFlag).filter(
+                    HookFeatureFlag.hook_id == hook_id
+                ).all()
+                
+                if not hook_flags:
+                    return []
+                
+                # Obtener los IDs de los flags
+                flag_ids = [hf.feature_flag_id for hf in hook_flags]
+                
+                # Obtener los flags con sus detalles
+                flags = session.query(FeatureFlag).filter(
+                    FeatureFlag.id.in_(flag_ids),
+                    FeatureFlag.project_id == project_id
+                ).all()
+                
+                # Convertir a diccionarios y agregar el patrón de uso
+                result = []
+                flag_dict = {f.id: f for f in flags}
+                for hf in hook_flags:
+                    if hf.feature_flag_id in flag_dict:
+                        flag_data = model_to_dict(flag_dict[hf.feature_flag_id])
+                        flag_data['usage_pattern'] = hf.usage_pattern
+                        result.append(flag_data)
+                
+                return result
+
+        return await asyncio.to_thread(_get)
+
+    async def save_hook_flag_usage(
+        self,
+        hook_id: int,
+        feature_flag_id: int,
+        usage_pattern: Optional[str] = None
+    ) -> None:
+        """
+        Guarda la relación entre un hook y un feature flag.
+        
+        Args:
+            hook_id: ID del hook
+            feature_flag_id: ID del feature flag
+            usage_pattern: Patrón de uso detectado (opcional)
+        """
+        def _save():
+            with db_session(self.SessionLocal) as session:
+                try:
+                    # Verificar si ya existe
+                    existing = session.query(HookFeatureFlag).filter(
+                        HookFeatureFlag.hook_id == hook_id,
+                        HookFeatureFlag.feature_flag_id == feature_flag_id
+                    ).first()
+                    
+                    if not existing:
+                        hook_flag = HookFeatureFlag(
+                            hook_id=hook_id,
+                            feature_flag_id=feature_flag_id,
+                            usage_pattern=usage_pattern
+                        )
+                        session.add(hook_flag)
+                        session.commit()
+                except Exception as e:
+                    session.rollback()
+                    print(f"❌ Error saving hook-flag usage: {e}")
+                    raise
+
+        return await asyncio.to_thread(_save)
+
+    async def get_hooks_using_flag(
+        self, flag_name: str, project_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene todos los hooks que usan un flag específico.
+        
+        Args:
+            flag_name: Nombre del flag
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de hooks que usan el flag
+        """
+        def _get():
+            with db_session(self.SessionLocal) as session:
+                # Buscar el flag primero
+                flag = session.query(FeatureFlag).filter(
+                    FeatureFlag.name == flag_name,
+                    FeatureFlag.project_id == project_id
+                ).first()
+                
+                if not flag:
+                    return []
+                
+                # Obtener hooks que usan este flag
+                hook_flags = session.query(HookFeatureFlag).filter(
+                    HookFeatureFlag.feature_flag_id == flag.id
+                ).all()
+                
+                # Obtener los hooks
+                hook_ids = [hf.hook_id for hf in hook_flags]
+                if not hook_ids:
+                    return []
+                
+                hooks = session.query(Hook).filter(
+                    Hook.id.in_(hook_ids),
+                    Hook.project_id == project_id
+                ).all()
+                
+                return to_dict_list(hooks)
+
+        return await asyncio.to_thread(_get)
 
