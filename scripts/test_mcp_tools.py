@@ -48,17 +48,26 @@ async def test_mcp_tools():
         else:
             print("⚠️  No feature flags found")
         
-        # Test 2: search_by_feature_flag
-        print("\n\n2️⃣  search_by_feature_flag('BILLING_ADDRESS_ENABLED'):")
+        # Test 2: get_feature_flag_usage (replaces search_by_feature_flag)
+        print("\n\n2️⃣  get_feature_flag_usage('BILLING_ADDRESS_ENABLED', 'platform-funnel', 'all'):")
         print("-" * 70)
         components = await db.get_components_using_flag("BILLING_ADDRESS_ENABLED", project_id)
-        if components:
-            response = f"🚩 **Components using 'BILLING_ADDRESS_ENABLED':**\n\n"
-            for comp in components:
-                response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+        hooks = await db.get_hooks_using_flag("BILLING_ADDRESS_ENABLED", project_id)
+        
+        if components or hooks:
+            response = f"🚩 **Feature Flag Usage: `BILLING_ADDRESS_ENABLED`**\n\n"
+            if components:
+                response += f"### 📦 Components ({len(components)})\n\n"
+                for comp in components:
+                    response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+                response += "\n"
+            if hooks:
+                response += f"### 🪝 Hooks ({len(hooks)})\n\n"
+                for hook in hooks:
+                    response += f"- **{hook['name']}** (`{hook['file_path']}`)\n"
             print(response)
         else:
-            print("🔍 No components found using feature flag 'BILLING_ADDRESS_ENABLED'")
+            print("🔍 No components or hooks found using feature flag 'BILLING_ADDRESS_ENABLED'")
         
         # Test 3: get_feature_flag_details
         print("\n\n3️⃣  get_feature_flag_details('FUNNEL_STYLE', 'platform-funnel'):")

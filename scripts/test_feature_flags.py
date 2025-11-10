@@ -77,21 +77,31 @@ async def test_feature_flag_tools():
             else:
                 print(f"❌ Flag '{test_flag}' no encontrado\n")
         
-        # Test 3: Buscar componentes que usan un flag
+        # Test 3: Buscar componentes y hooks que usan un flag (get_feature_flag_usage)
         if flags:
             test_flag = flags[0]['name']
             print("=" * 60)
-            print(f"TEST 3: search_by_feature_flag - '{test_flag}'")
+            print(f"TEST 3: get_feature_flag_usage - '{test_flag}'")
             print("=" * 60)
             components = await db.get_components_using_flag(test_flag, project_id)
-            if components:
-                print(f"✅ Encontrados {len(components)} componente(s) que usan '{test_flag}':\n")
-                for comp in components[:5]:  # Mostrar solo los primeros 5
-                    print(f"  - {comp['name']} ({comp.get('file_path', 'N/A')})")
-                if len(components) > 5:
-                    print(f"  ... y {len(components) - 5} más\n")
+            hooks = await db.get_hooks_using_flag(test_flag, project_id)
+            if components or hooks:
+                print(f"✅ Encontrados {len(components)} componente(s) y {len(hooks)} hook(s) que usan '{test_flag}':\n")
+                if components:
+                    print("  Componentes:")
+                    for comp in components[:5]:
+                        print(f"    - {comp['name']} ({comp.get('file_path', 'N/A')})")
+                    if len(components) > 5:
+                        print(f"    ... y {len(components) - 5} más")
+                if hooks:
+                    print("  Hooks:")
+                    for hook in hooks[:5]:
+                        print(f"    - {hook['name']} ({hook.get('file_path', 'N/A')})")
+                    if len(hooks) > 5:
+                        print(f"    ... y {len(hooks) - 5} más")
+                print()
             else:
-                print(f"⚠️  No se encontraron componentes que usen '{test_flag}'\n")
+                print(f"⚠️  No se encontraron componentes o hooks que usen '{test_flag}'\n")
         
         # Test 4: Obtener flags no usados
         print("=" * 60)
