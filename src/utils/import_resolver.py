@@ -185,6 +185,29 @@ def resolve_imports_to_components(
         resolved_path = resolve_relative_path(from_path, current_file_path)
         normalized_resolved = normalize_path(resolved_path)
         
+        # ============================================
+        # NUEVO: Intentar resolver via barrel export
+        # ============================================
+        from src.models import BarrelExport
+        
+        barrel = db_session.query(BarrelExport).filter(
+            BarrelExport.project_id == project_id,
+            BarrelExport.directory_path == normalized_resolved
+        ).first()
+        
+        if barrel and barrel.exported_component_id:
+            dependencies.append({
+                'depends_on_component_id': barrel.exported_component_id,
+                'depends_on_name': imported_names[0] if imported_names else barrel.exported_name,
+                'from_path': from_path,
+                'import_type': import_type,
+                'is_external': False
+            })
+            continue  # Import resuelto, siguiente
+        
+        # Si no se resolvió via barrel export, continuar con lógica existente
+        # ============================================
+        
         # Buscar componentes que coincidan con la ruta
         # Intentar diferentes variaciones de la ruta
         search_paths = [

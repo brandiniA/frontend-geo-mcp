@@ -67,7 +67,7 @@ class ComponentRepository(BaseRepository):
         return score
     
     
-    async def save(self, components: List[Dict[str, Any]], project_id: str) -> int:
+    async def save(self, components: List[Dict[str, Any]], project_id: str, resolve_dependencies: bool = True) -> int:
         """
         Guarda componentes en la base de datos.
         Separa y valida hooks:
@@ -77,6 +77,7 @@ class ComponentRepository(BaseRepository):
         Args:
             components: Lista de componentes a guardar
             project_id: ID del proyecto
+            resolve_dependencies: Si True, resuelve dependencias al guardar. Si False, solo guarda el componente.
             
         Returns:
             Número de componentes guardados
@@ -134,8 +135,9 @@ class ComponentRepository(BaseRepository):
                         )
                         
                         # Resolver y guardar dependencias si hay component_imports
+                        # ⭐ NUEVO: Solo si resolve_dependencies=True
                         component_imports = comp_data.get('component_imports', [])
-                        if component_imports:
+                        if component_imports and resolve_dependencies:
                             try:
                                 # Eliminar dependencias antiguas antes de recalcular
                                 # Esto asegura que siempre usamos la lógica más reciente de resolución
@@ -179,6 +181,76 @@ class ComponentRepository(BaseRepository):
                     raise
 
         return await asyncio.to_thread(_save)
+    
+    async def resolve_all_dependencies(self, project_id: str) -> int:
+        """
+        Resuelve dependencias para TODOS los componentes de un proyecto.
+        Útil para ejecutar DESPUÉS de indexar barrel exports.
+        
+        Args:
+            project_id: ID del proyecto
+            
+        Returns:
+            Número de componentes procesados
+        """
+        def _resolve():
+            with db_session(self.SessionLocal) as session:
+                try:
+                    from src.models import ComponentDependency
+                    from src.utils.import_resolver import resolve_imports_to_components
+                    
+                    # Obtener todos los componentes del proyecto
+                    components = session.query(Component).filter(
+                        Component.project_id == project_id
+                    ).all()
+                    
+                    processed = 0
+                    
+                    for component in components:
+                        # Obtener component_imports del JSON
+                        component_imports = component.component_imports if hasattr(component, 'component_imports') else []
+                        
+                        if not component_imports:
+                            continue
+                        
+                        # Eliminar dependencias antiguas
+                        session.query(ComponentDependency).filter(
+                            ComponentDependency.component_id == component.id
+                        ).delete()
+                        
+                        # Resolver nuevamente con barrel exports disponibles
+                        try:
+                            dependencies = resolve_imports_to_components(
+                                component_imports=component_imports,
+                                project_id=project_id,
+                                current_file_path=component.file_path,
+                                component_name=component.name,
+                                db_session=session
+                            )
+                            
+                            # Guardar nuevas dependencias
+                            for dep in dependencies:
+                                dependency = ComponentDependency(
+                                    component_id=component.id,
+                                    project_id=project_id,
+                                    **dep
+                                )
+                                session.add(dependency)
+                        except Exception as dep_error:
+                            # No fallar por un componente
+                            print(f"⚠️  Warning: Could not resolve dependencies for {component.name}: {dep_error}")
+                        
+                        processed += 1
+                    
+                    session.commit()
+                    return processed
+                    
+                except Exception as e:
+                    print(f"❌ Error resolviendo dependencias: {str(e)}")
+                    session.rollback()
+                    raise
+
+        return await asyncio.to_thread(_resolve)
 
     async def search(
         self, query: str, project_id: Optional[str] = None, limit: Optional[int] = None
