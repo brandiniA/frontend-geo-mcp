@@ -687,6 +687,197 @@ class ReactParser:
             result['version'] = version_match.group(1).strip()
         
         return result if result else None
+    
+    def _detect_redox_container(self, content: str, file_path: str) -> Optional[Dict]:
+        """
+        Detecta si un archivo es un container de Redux.
+        
+        Args:
+            content: Contenido del archivo
+            file_path: Ruta del archivo
+            
+        Returns:
+            Dict con información del container o None si no es container
+        """
+        # Patrón para detectar: export default connect(...)(ComponentName)
+        # Usar re.DOTALL para que . coincida con saltos de línea
+        connect_pattern = r'export\s+default\s+connect\s*\([^)]+\)\s*\((\w+)\)'
+        # Patrón para detectar: export default compose(...)(ComponentName)
+        # Usar re.DOTALL para manejar múltiples líneas dentro de compose
+        compose_pattern = r'export\s+default\s+compose\s*\([\s\S]*?\)\s*\((\w+)\)'
+        
+        # Patrón para detectar: const ContainerName = connect(...)(ComponentName)
+        # Para casos donde el connect no está directamente en el export default
+        connect_var_pattern = r'const\s+\w+Container\w*\s*=\s*connect\s*\([^)]+\)\s*\((\w+)\)'
+        # Patrón para detectar: const ContainerName = compose(...)(ComponentName)
+        compose_var_pattern = r'const\s+\w+Container\w*\s*=\s*compose\s*\([\s\S]*?\)\s*\((\w+)\)'
+        
+        wrapped_component = None
+        hocs_used = []
+        has_merge_props = False
+        compose_match = None  # Inicializar para evitar UnboundLocalError
+        
+        # Buscar patrón connect en export default
+        connect_match = re.search(connect_pattern, content)
+        if connect_match:
+            wrapped_component = connect_match.group(1)
+            hocs_used.append('connect')
+        
+        # Buscar patrón compose en export default (con soporte para múltiples líneas)
+        if not wrapped_component:
+            compose_match = re.search(compose_pattern, content, re.DOTALL)
+            if compose_match:
+                wrapped_component = compose_match.group(1)
+                hocs_used.append('compose')
+        
+        # Si no encontramos en export default, buscar en variables (casos como CheckoutContainer)
+        if not wrapped_component:
+            connect_var_match = re.search(connect_var_pattern, content)
+            if connect_var_match:
+                wrapped_component = connect_var_match.group(1)
+                hocs_used.append('connect')
+        
+        if not wrapped_component:
+            compose_var_match = re.search(compose_var_pattern, content, re.DOTALL)
+            if compose_var_match:
+                wrapped_component = compose_var_match.group(1)
+                hocs_used.append('compose')
+                compose_match = compose_var_match  # Guardar para uso posterior
+        
+        # Si no encontramos ningún patrón, no es container
+        if not wrapped_component:
+            return None
+        
+        # Detectar otros HOCs comunes (buscar también dentro de compose)
+        if 'reduxForm(' in content:
+            hocs_used.append('reduxForm')
+        if 'withTranslation(' in content:
+            hocs_used.append('withTranslation')
+        if 'withRouter(' in content:
+            hocs_used.append('withRouter')
+        # Si hay compose, también buscar connect dentro de él
+        if compose_match and 'connect(' in content:
+            hocs_used.append('connect')
+        
+        # Detectar mergeProps
+        if 'mergeProps' in content or 'const mergeProps' in content:
+            has_merge_props = True
+        
+        return {
+            'is_container': True,
+            'wrapped_component': wrapped_component,
+            'hocs_used': list(set(hocs_used)),  # Eliminar duplicados
+            'has_merge_props': has_merge_props,
+            'file_path': file_path
+        }
+    
+    def _extract_usage_context(self, content: str, flag_name: str) -> Dict:
+        """
+        Extrae metadata del contexto de uso de un feature flag.
+        
+        Args:
+            content: Contenido del archivo
+            flag_name: Nombre del feature flag
+            
+        Returns:
+            Dict con metadata del contexto
+        """
+        usage_context = None
+        usage_type = None
+        combined_with = []
+        logic = None
+        
+        # Detectar contexto: mapStateToProps, mapDispatchToProps, mergeProps
+        map_state_match = re.search(r'const\s+mapStateToProps\s*=\s*\([^)]*\)\s*=>\s*\{', content)
+        map_dispatch_match = re.search(r'const\s+mapDispatchToProps\s*=\s*\([^)]*\)\s*=>\s*\{', content)
+        merge_props_match = re.search(r'const\s+mergeProps\s*=\s*\([^)]*\)\s*=>\s*\{', content)
+        
+        # Buscar el flag en el contenido
+        flag_pattern = rf'\b{re.escape(flag_name)}\b'
+        flag_matches = list(re.finditer(flag_pattern, content))
+        
+        if not flag_matches:
+            return {
+                'usage_context': None,
+                'usage_type': None,
+                'combined_with': [],
+                'logic': None
+            }
+        
+        # Determinar contexto basado en dónde aparece el flag
+        for match in flag_matches:
+            match_pos = match.start()
+            
+            # Buscar en qué función está
+            if map_state_match and map_dispatch_match:
+                if map_state_match.start() < match_pos < map_dispatch_match.start():
+                    usage_context = 'mapStateToProps'
+                    break
+                elif map_dispatch_match.start() < match_pos:
+                    if merge_props_match and match_pos < merge_props_match.start():
+                        usage_context = 'mapDispatchToProps'
+                    elif merge_props_match and match_pos > merge_props_match.start():
+                        usage_context = 'mergeProps'
+                    else:
+                        usage_context = 'mapDispatchToProps'
+                    break
+            elif map_state_match:
+                if map_state_match.start() < match_pos:
+                    usage_context = 'mapStateToProps'
+                    break
+            elif map_dispatch_match:
+                if map_dispatch_match.start() < match_pos:
+                    usage_context = 'mapDispatchToProps'
+                    break
+        
+        # Detectar tipo de uso (en orden de especificidad, más específico primero)
+        # 1. Construcción de array: features.FLAG && 'value' (más específico)
+        array_pattern = rf'{re.escape(flag_name)}\s*&&\s*[\'"][^\'"]+[\'"]'
+        if re.search(array_pattern, content):
+            usage_type = 'array_construction'
+        
+        # 2. Validación condicional: if (key === 'field' && !features.FLAG)
+        elif re.search(rf'if\s*\([^)]*{re.escape(flag_name)}', content):
+            usage_type = 'conditional_validation'
+        
+        # 3. Lógica condicional: features.FLAG === 'value' o const x = features.FLAG
+        elif re.search(rf'{re.escape(flag_name)}\s*[=!]+\s*[\'"]', content) or re.search(rf'const\s+\w+\s*=\s*.*{re.escape(flag_name)}', content):
+            usage_type = 'conditional_logic'
+        
+        # 4. Prop passing: features, o features.FLAG en return (menos específico, último)
+        # Solo si no se detectó otro tipo más específico
+        elif re.search(rf'features\s*[,}}]', content) and not usage_type:
+            usage_type = 'prop_passing'
+        
+        # Detectar flags combinados (AND/OR)
+        # Buscar patrones como: features.FLAG1 === 'value' && features.FLAG2
+        combined_and_pattern = rf'{re.escape(flag_name)}\s*[=!]+\s*[^\s&|]+\s*&&\s*features\.(\w+)'
+        combined_and_match = re.search(combined_and_pattern, content)
+        if combined_and_match:
+            combined_with.append(combined_and_match.group(1))
+            logic = 'AND'
+        
+        # Buscar: features.FLAG1 && features.FLAG2
+        simple_and_pattern = rf'{re.escape(flag_name)}\s*&&\s*features\.(\w+)'
+        simple_and_match = re.search(simple_and_pattern, content)
+        if simple_and_match and simple_and_match.group(1) not in combined_with:
+            combined_with.append(simple_and_match.group(1))
+            if not logic:
+                logic = 'AND'
+        
+        # Buscar OR
+        combined_or_pattern = rf'{re.escape(flag_name)}\s*\|\|\s*features\.(\w+)'
+        combined_or_match = re.search(combined_or_pattern, content)
+        if combined_or_match:
+            combined_with.append(combined_or_match.group(1))
+            logic = 'OR'
+        
+        return {
+            'usage_context': usage_context,
+            'usage_type': usage_type,
+            'combined_with': combined_with if combined_with else None,
+            'logic': logic
+        }
 
 
 # Función de utilidad para testing
