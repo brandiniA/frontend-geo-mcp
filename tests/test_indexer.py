@@ -21,6 +21,7 @@ class TestProjectIndexer:
         db.save_hooks = AsyncMock(return_value=5)
         db.save_components = AsyncMock(return_value=10)
         db.save_feature_flags = AsyncMock(return_value=3)
+        db.resolve_all_dependencies = AsyncMock(return_value=10)
         db.get_components_by_project = AsyncMock(return_value=[
             {'id': 1, 'name': 'Button', 'file_path': 'src/components/Button.jsx'},
             {'id': 2, 'name': 'Footer', 'file_path': 'src/components/Footer.jsx'},
@@ -31,6 +32,10 @@ class TestProjectIndexer:
         db.save_hook_feature_flag_usage = AsyncMock()
         db.search_components = AsyncMock(return_value=[])
         db.update_component_container_file_path = AsyncMock(return_value=True)
+        # Nuevos métodos para barrel exports
+        db.barrel_exports = Mock()
+        db.barrel_exports.save_barrel_exports = AsyncMock(return_value=0)
+        db.upsert_project = AsyncMock()
         return db
     
     @pytest.fixture
@@ -226,6 +231,8 @@ class TestProjectIndexer:
         assert "Failed to clone repository" in str(exc_info.value)
     
     @pytest.mark.asyncio
+    @patch('src.utils.indexer.detect_project_aliases')
+    @patch.object(ProjectIndexer, '_scan_barrel_exports')
     @patch.object(ProjectIndexer, '_clone_repo')
     @patch.object(ProjectIndexer, '_scan_hooks')
     @patch.object(ProjectIndexer, '_scan_components')
@@ -236,11 +243,15 @@ class TestProjectIndexer:
         mock_scan_components,
         mock_scan_hooks,
         mock_clone,
+        mock_scan_barrel_exports,
+        mock_detect_aliases,
         indexer,
         mock_db_client
     ):
         """Test indexación exitosa de proyecto."""
         mock_clone.return_value = '/tmp/test-repo'
+        mock_detect_aliases.return_value = {}
+        mock_scan_barrel_exports.return_value = []
         mock_scan_hooks.return_value = [
             {'name': 'useAuth', 'file_path': 'hooks/useAuth.js'}
         ]
@@ -370,6 +381,8 @@ class TestProjectIndexer:
         assert mock_db_client.save_component_feature_flag_usage.called
     
     @pytest.mark.asyncio
+    @patch('src.utils.indexer.detect_project_aliases')
+    @patch.object(ProjectIndexer, '_scan_barrel_exports')
     @patch.object(ProjectIndexer, '_clone_repo')
     @patch.object(ProjectIndexer, '_scan_feature_flags')
     @patch.object(ProjectIndexer, '_scan_hooks')
@@ -384,11 +397,15 @@ class TestProjectIndexer:
         mock_scan_hooks,
         mock_scan_feature_flags,
         mock_clone,
+        mock_scan_barrel_exports,
+        mock_detect_aliases,
         indexer,
         mock_db_client
     ):
         """Test indexación completa con feature flags."""
         mock_clone.return_value = '/tmp/test-repo'
+        mock_detect_aliases.return_value = {}
+        mock_scan_barrel_exports.return_value = []
         mock_scan_feature_flags.return_value = [
             {'name': 'SHOW_FOOTER', 'file_path': 'config/defaultFeatures.js', 'default_value': True}
         ]

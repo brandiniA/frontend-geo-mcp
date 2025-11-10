@@ -110,3 +110,9 @@ def sample_hook():
         "jsdoc": None,
     }
 
+
+@pytest.fixture
+def checkout_evidence_path():
+    """Fixture para la ruta de evidencia de Checkout."""
+    return Path(__file__).parent.parent / "src/evidencia/Checkout"
+
