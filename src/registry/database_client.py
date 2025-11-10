@@ -19,6 +19,7 @@ from .repositories import (
     HookRepository,
     DependencyRepository,
     FeatureFlagRepository,
+    BarrelExportRepository,
 )
 
 load_dotenv()
@@ -52,6 +53,7 @@ class DatabaseClient:
         self.hooks = HookRepository(self.SessionLocal)
         self.dependencies = DependencyRepository(self.SessionLocal)
         self.feature_flags = FeatureFlagRepository(self.SessionLocal)
+        self.barrel_exports = BarrelExportRepository(self.SessionLocal)
 
         print("✅ Connected to database with SQLAlchemy")
 
@@ -83,9 +85,13 @@ class DatabaseClient:
     # COMPONENT OPERATIONS (delegadas a ComponentRepository)
     # ============================================
 
-    async def save_components(self, components: List[Dict[str, Any]], project_id: str) -> int:
+    async def save_components(self, components: List[Dict[str, Any]], project_id: str, resolve_dependencies: bool = True) -> int:
         """Guarda componentes en la base de datos."""
-        return await self.components.save(components, project_id)
+        return await self.components.save(components, project_id, resolve_dependencies)
+    
+    async def resolve_all_dependencies(self, project_id: str) -> int:
+        """Resuelve dependencias para todos los componentes de un proyecto."""
+        return await self.components.resolve_all_dependencies(project_id)
 
     async def search_components(
         self, query: str, project_id: Optional[str] = None, limit: Optional[int] = None

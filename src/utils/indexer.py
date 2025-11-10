@@ -23,6 +23,7 @@ try:
     )
     from utils.feature_flag_parser import FeatureFlagParser
     from utils.feature_flag_detector import FeatureFlagUsageDetector
+    from utils.config_parser import detect_project_aliases
 except ImportError:
     # Si falla, intenta con prefijo src (para ejecución desde scripts)
     from src.utils.parser import ReactParser  # type: ignore
@@ -37,6 +38,7 @@ except ImportError:
     )
     from src.utils.feature_flag_parser import FeatureFlagParser  # type: ignore
     from src.utils.feature_flag_detector import FeatureFlagUsageDetector  # type: ignore
+    from src.utils.config_parser import detect_project_aliases  # type: ignore
 
 
 class ProjectIndexer:
@@ -48,6 +50,7 @@ class ProjectIndexer:
         self.feature_flag_parser = FeatureFlagParser()
         self.feature_flag_detector = FeatureFlagUsageDetector()
         self.temp_dir = os.getenv("TEMP_DIR", "/tmp/mcp-repos")
+        self.project_aliases: Dict[str, str] = {}  # Cache de aliases del proyecto
         
         # Crear directorio temporal si no existe
         Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
@@ -56,10 +59,15 @@ class ProjectIndexer:
         """
         Indexa un proyecto completo desde un repositorio remoto.
         Implementa indexación en múltiples fases:
-        0. Indexar feature flags (si existen)
-        1. Indexar todos los custom hooks primero
-        2. Indexar componentes (separando hooks nativos y custom)
-        2.5. Detectar uso de feature flags en componentes
+        0.5. Detectar aliases de configuración (webpack, babel, tsconfig)
+        0.  Indexar feature flags (si existen)
+        1.  Indexar todos los custom hooks primero
+        2.  Indexar componentes (sin resolver dependencias)
+        2.5. Indexar barrel exports (index.js)
+        2.6. Resolver dependencias de componentes (con barrel exports disponibles)
+        2.7. Detectar containers y feature flags en containers
+        2.8. Detectar uso de feature flags en componentes
+        2.9. Detectar uso de feature flags en hooks
         
         Args:
             project_id: ID único del proyecto
@@ -73,6 +81,17 @@ class ProjectIndexer:
             # Clonar repositorio
             print(f"📥 Clonando {repo_url}...")
             repo_path = await self._clone_repo(repo_url, project_id, branch)
+            
+            # ============================================
+            # FASE 0.5: Detectar Aliases de Configuración
+            # ============================================
+            print(f"🔍 Fase 0.5: Detectando aliases en configuración de {project_id}...")
+            self.project_aliases = detect_project_aliases(repo_path)
+            
+            if self.project_aliases:
+                print(f"✅ Detectados {len(self.project_aliases)} aliases de configuración")
+            else:
+                print(f"ℹ️  No se detectaron aliases en la configuración")
             
             # ============================================
             # FASE 0: Indexar Feature Flags
@@ -129,34 +148,56 @@ class ProjectIndexer:
                 return result
             
             print(f"✅ Encontrados {len(components)} componentes")
-            # Guardar en base de datos
-            print(f"💾 Guardando {len(components)} componentes en BD...")
-            await self.db.save_components(components, project_id)
+            # Guardar en base de datos SIN resolver dependencias todavía
+            print(f"💾 Guardando {len(components)} componentes en BD (sin dependencias)...")
+            await self.db.save_components(components, project_id, resolve_dependencies=False)
             print(f"✅ Guardados {len(components)} componentes en BD")
             
             # ============================================
-            # FASE 2.5: Detectar uso de Feature Flags en Componentes
+            # FASE 2.5: Indexar Barrel Exports
             # ============================================
-            if flag_names:
-                print(f"🔍 Fase 2.5: Detectando uso de {len(flag_names)} feature flags en {len(components)} componentes...")
-                print(f"   Analizando código de componentes para detectar uso de flags...")
-                await self._detect_feature_flag_usage(repo_path, project_id, flag_names)
+            print(f"🔍 Fase 2.5: Escaneando barrel exports (index.js) en {project_id}...")
+            barrel_exports = await self._scan_barrel_exports(repo_path, project_id)
+            
+            if barrel_exports:
+                print(f"✅ Encontrados {len(barrel_exports)} barrel exports")
+                print(f"💾 Guardando {len(barrel_exports)} barrel exports en BD...")
+                await self.db.barrel_exports.save_barrel_exports(barrel_exports, project_id)
+                print(f"✅ Guardados {len(barrel_exports)} barrel exports en BD")
+            else:
+                print(f"⚠️  No se encontraron barrel exports en {project_id}")
             
             # ============================================
-            # FASE 2.6: Detectar uso de Feature Flags en Hooks
+            # FASE 2.6: Resolver Dependencias
             # ============================================
-            if flag_names:
-                hooks = await self.db.get_hooks_by_project(project_id)
-                if hooks:
-                    print(f"🔍 Fase 2.6: Detectando uso de {len(flag_names)} feature flags en {len(hooks)} hooks...")
-                    print(f"   Analizando código de hooks para detectar uso de flags...")
-                    await self._detect_feature_flag_usage_in_hooks(repo_path, project_id, flag_names)
+            print(f"🔍 Fase 2.6: Resolviendo dependencias de {len(components)} componentes...")
+            print(f"   (ahora con barrel exports disponibles)")
+            resolved_count = await self.db.resolve_all_dependencies(project_id)
+            print(f"✅ Resueltas dependencias de {resolved_count} componentes")
             
             # ============================================
             # FASE 2.7: Detectar Containers y Feature Flags en Containers
             # ============================================
             print(f"🔍 Fase 2.7: Detectando containers de Redux y feature flags en containers...")
             await self._detect_containers_and_flags(repo_path, project_id, flag_names if flag_names else [])
+            
+            # ============================================
+            # FASE 2.8: Detectar uso de Feature Flags en Componentes
+            # ============================================
+            if flag_names:
+                print(f"🔍 Fase 2.8: Detectando uso de {len(flag_names)} feature flags en {len(components)} componentes...")
+                print(f"   Analizando código de componentes para detectar uso de flags...")
+                await self._detect_feature_flag_usage(repo_path, project_id, flag_names)
+            
+            # ============================================
+            # FASE 2.9: Detectar uso de Feature Flags en Hooks
+            # ============================================
+            if flag_names:
+                hooks = await self.db.get_hooks_by_project(project_id)
+                if hooks:
+                    print(f"🔍 Fase 2.9: Detectando uso de {len(flag_names)} feature flags en {len(hooks)} hooks...")
+                    print(f"   Analizando código de hooks para detectar uso de flags...")
+                    await self._detect_feature_flag_usage_in_hooks(repo_path, project_id, flag_names)
             
             # Limpiar repositorio clonado
             await self._cleanup_repo(repo_path)
@@ -165,19 +206,26 @@ class ProjectIndexer:
             print(f"\n{'='*60}")
             print(f"📊 Resumen de indexación para '{project_id}':")
             print(f"{'='*60}")
+            print(f"   🔧 Aliases detectados: {len(self.project_aliases)}")
             print(f"   🚩 Feature Flags: {len(feature_flags) if feature_flags else 0}")
             print(f"   🪝 Custom Hooks: {len(hooks) if hooks else 0}")
             print(f"   ⚛️  Componentes: {len(components)}")
+            print(f"   📦 Barrel Exports: {len(barrel_exports) if barrel_exports else 0}")
+            print(f"   🔗 Dependencias resueltas: {resolved_count}")
             print(f"{'='*60}\n")
             
             return {
                 "project_id": project_id,
+                "aliases_detected": len(self.project_aliases),
                 "feature_flags_found": len(feature_flags) if feature_flags else 0,
                 "feature_flags_saved": len(feature_flags) if feature_flags else 0,
                 "hooks_found": len(hooks) if hooks else 0,
                 "hooks_saved": len(hooks) if hooks else 0,
                 "components_found": len(components),
                 "components_saved": len(components),
+                "barrel_exports_found": len(barrel_exports) if barrel_exports else 0,
+                "barrel_exports_saved": len(barrel_exports) if barrel_exports else 0,
+                "dependencies_resolved": resolved_count,
                 "status": "success"
             }
             
@@ -283,6 +331,87 @@ class ProjectIndexer:
             flag['file_path'] = relative_path
         
         return flags
+    
+    async def _scan_barrel_exports(self, repo_path: str, project_id: str) -> List[Dict]:
+        """
+        Escanea barrel exports (index.js/ts) en el repositorio.
+        
+        Un barrel export es un archivo index que re-exporta componentes del mismo directorio.
+        Ejemplo: components/Checkout/index.js que exporta CheckoutContainer
+        
+        Args:
+            repo_path: Ruta del repositorio clonado
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de barrel exports encontrados
+        """
+        from src.utils.barrel_export_parser import (
+            resolve_index_export,
+            resolve_barrel_component,
+            get_directory_from_index_path,
+            EXCLUDE_BARREL_PATHS
+        )
+        
+        barrel_exports = []
+        index_files = ['index.js', 'index.jsx', 'index.ts', 'index.tsx']
+        
+        print(f"   🔍 Buscando archivos index en {repo_path}...")
+        
+        for root, dirs, files in os.walk(repo_path):
+            # Filtrar directorios ignorados
+            dirs[:] = [d for d in dirs if d not in BASE_IGNORE_DIRS]
+            
+            for index_file in index_files:
+                if index_file in files:
+                    index_path = os.path.join(root, index_file)
+                    
+                    # Parsear el index file
+                    export_info = resolve_index_export(index_path)
+                    
+                    if export_info:
+                        # Obtener directorio como ruta relativa al repo
+                        index_dir = os.path.dirname(index_path)
+                        directory_path = get_relative_path(index_dir, repo_path)
+                        
+                        # Verificar si el directorio está en la lista de exclusión
+                        if any(excluded in directory_path for excluded in EXCLUDE_BARREL_PATHS):
+                            continue  # Saltar este barrel export (no es un componente)
+                        
+                        # Intentar resolver el componente al que apunta
+                        # Necesitamos la sesión de BD para esto
+                        session = self.db._get_session()
+                        try:
+                            component_id = resolve_barrel_component(
+                                source_file_path=export_info['source_file'],
+                                is_container=export_info['is_container'],
+                                directory_path=directory_path,
+                                project_id=project_id,
+                                db_session=session,
+                                repo_path=repo_path,
+                                project_aliases=self.project_aliases
+                            )
+                        finally:
+                            session.close()
+                        
+                        barrel_export = {
+                            'directory_path': directory_path,
+                            'index_file_path': get_relative_path(index_path, repo_path),
+                            'exported_component_id': component_id,
+                            'exported_name': export_info['exported_name'],
+                            'source_file_path': export_info['source_file'],
+                            'is_container': export_info['is_container'],
+                            'notes': f"Tipo: {export_info['export_type']}"
+                        }
+                        
+                        barrel_exports.append(barrel_export)
+        
+        print(f"   📋 Barrel exports encontrados: {len(barrel_exports)}")
+        if barrel_exports:
+            resolved_count = sum(1 for be in barrel_exports if be['exported_component_id'] is not None)
+            print(f"   ✅ Barrel exports resueltos: {resolved_count}/{len(barrel_exports)}")
+        
+        return barrel_exports
     
     async def _detect_feature_flag_usage(
         self, repo_path: str, project_id: str, flag_names: List[str]
