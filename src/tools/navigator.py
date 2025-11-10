@@ -147,9 +147,295 @@ class ComponentNavigator:
                 response += f"- ... and {len(comp['imports']) - 10} more\n"
             response += "\n"
         
+        # Feature Flags
+        component_id = comp.get('id')
+        if component_id:
+            try:
+                flags = await self.db.get_flags_for_component(component_id, project_id)
+                if flags:
+                    response += "### 🚩 Feature Flags\n"
+                    for flag in flags:
+                        flag_name = flag.get('name', 'Unknown')
+                        flag_type = flag.get('value_type', '')
+                        default_value = flag.get('default_value')
+                        usage_pattern = flag.get('usage_pattern', '')
+                        
+                        flag_line = f"- **`{flag_name}`**"
+                        if flag_type:
+                            flag_line += f" (`{flag_type}`)"
+                        if default_value is not None:
+                            flag_line += f" - Default: `{default_value}`"
+                        if usage_pattern:
+                            flag_line += f" - Pattern: `{usage_pattern}`"
+                        response += flag_line + "\n"
+                    response += "\n"
+            except Exception as e:
+                # Silently fail if there's an error getting flags
+                # This prevents breaking the component details if flags aren't available
+                pass
+        
         # Usage example (si no hay en JSDoc)
         if not (jsdoc and jsdoc.get('examples')):
             response += format_usage_example(comp, include_props=True, max_props=3)
+        
+        return response
+    
+    async def find_hook(
+        self,
+        query: str,
+        project_id: Optional[str] = None
+    ) -> str:
+        """
+        Busca hooks por nombre.
+        
+        Args:
+            query: Término de búsqueda
+            project_id: Filtrar por proyecto (opcional)
+            
+        Returns:
+            Respuesta formateada en markdown
+        """
+        hooks = await self.db.search_hooks(query, project_id)
+        
+        if not hooks:
+            return f"❌ No hooks found matching '{query}'"
+        
+        response = f"📍 Found {len(hooks)} hook(s) matching '{query}':\n\n"
+        
+        # Agrupar por proyecto
+        by_project = group_by_project(hooks)
+        
+        for pid, hook_list in by_project.items():
+            project = await self.db.get_project(pid)
+            response += format_project_header(project, pid) + "\n\n"
+            
+            for hook in hook_list:
+                response += f"**{hook['name']}**\n"
+                response += f"- 📂 Path: `{hook['file_path']}`\n"
+                if hook.get('description'):
+                    response += f"- 📝 {hook['description']}\n"
+                if hook.get('return_type'):
+                    response += f"- 🔄 Returns: `{hook['return_type']}`\n"
+                if hook.get('parameters'):
+                    params = hook['parameters']
+                    if isinstance(params, list) and len(params) > 0:
+                        param_str = ", ".join([p.get('name', '') if isinstance(p, dict) else str(p) for p in params[:3]])
+                        response += f"- 📥 Parameters: `{param_str}`"
+                        if len(params) > 3:
+                            response += f" (+{len(params) - 3} more)"
+                        response += "\n"
+                response += f"- 🔗 Import: `import {{ {hook['name']} }} from '{hook['file_path']}'`\n"
+                response += "\n"
+        
+        return response
+    
+    async def get_hook_details(
+        self,
+        hook_name: str,
+        project_id: str
+    ) -> str:
+        """
+        Obtiene detalles específicos de un hook.
+        Incluye información de cuándo fue creado y modificado.
+        
+        Args:
+            hook_name: Nombre del hook
+            project_id: ID del proyecto
+            
+        Returns:
+            Detalles formateados en markdown con JSDoc completo
+        """
+        hook = await self.db.get_hook_by_name(hook_name, project_id)
+        
+        if not hook:
+            return f"❌ Hook '{hook_name}' not found in project '{project_id}'"
+        
+        response = f"## 🪝 Hook Details: {hook['name']}\n\n"
+        
+        # Información del proyecto
+        project = await self.db.get_project(project_id)
+        if project:
+            response += f"**Project:** {project['name']} ({project['type']})\n"
+        
+        response += f"**Path:** `{hook['file_path']}`\n"
+        response += f"**Type:** {hook.get('hook_type', 'custom')}\n"
+        
+        # Información de fechas
+        if hook.get('created_at'):
+            response += f"**Added:** {format_relative_time(hook['created_at'])}\n"
+        
+        if hook.get('updated_at'):
+            response += f"**Modified:** {format_relative_time(hook['updated_at'])}\n"
+        
+        if hook.get('description'):
+            response += f"**Description:** {hook['description']}\n"
+        
+        response += "\n"
+        
+        # JSDoc completo si está disponible
+        jsdoc = hook.get('jsdoc')
+        if jsdoc:
+            response += format_jsdoc_section(jsdoc)
+        
+        # Parameters
+        if hook.get('parameters'):
+            params = hook['parameters']
+            if isinstance(params, list) and len(params) > 0:
+                response += "### 📥 Parameters\n"
+                for param in params:
+                    if isinstance(param, dict):
+                        param_name = param.get('name', 'Unknown')
+                        param_type = param.get('type', '')
+                        param_desc = param.get('description', '')
+                        param_line = f"- **`{param_name}`**"
+                        if param_type:
+                            param_line += f" (`{param_type}`)"
+                        if param_desc:
+                            param_line += f": {param_desc}"
+                        response += param_line + "\n"
+                    else:
+                        response += f"- `{param}`\n"
+                response += "\n"
+        
+        # Return type
+        if hook.get('return_type'):
+            response += f"### 📤 Returns\n"
+            response += f"**Type:** `{hook['return_type']}`\n\n"
+        
+        # Hooks - mostrar separados (native y custom)
+        if hook.get('native_hooks_used') or hook.get('custom_hooks_used'):
+            response += "### 🪝 Hooks Used\n"
+            if hook.get('native_hooks_used'):
+                response += "**Native Hooks:**\n"
+                for h in hook['native_hooks_used']:
+                    response += f"- `{h}`\n"
+            if hook.get('custom_hooks_used'):
+                response += "**Custom Hooks:**\n"
+                for h in hook['custom_hooks_used']:
+                    response += f"- `{h}`\n"
+            response += "\n"
+        
+        # Dependencies
+        if hook.get('imports'):
+            response += "### 📚 Dependencies\n"
+            for imp in hook['imports'][:10]:
+                response += f"- `{imp}`\n"
+            if len(hook['imports']) > 10:
+                response += f"- ... and {len(hook['imports']) - 10} more\n"
+            response += "\n"
+        
+        # Feature Flags
+        hook_id = hook.get('id')
+        if hook_id:
+            try:
+                flags = await self.db.get_flags_for_hook(hook_id, project_id)
+                if flags:
+                    response += "### 🚩 Feature Flags\n"
+                    for flag in flags:
+                        flag_name = flag.get('name', 'Unknown')
+                        flag_type = flag.get('value_type', '')
+                        default_value = flag.get('default_value')
+                        usage_pattern = flag.get('usage_pattern', '')
+                        
+                        flag_line = f"- **`{flag_name}`**"
+                        if flag_type:
+                            flag_line += f" (`{flag_type}`)"
+                        if default_value is not None:
+                            flag_line += f" - Default: `{default_value}`"
+                        if usage_pattern:
+                            flag_line += f" - Pattern: `{usage_pattern}`"
+                        response += flag_line + "\n"
+                    response += "\n"
+            except Exception as e:
+                pass
+        
+        # Usage example
+        response += "### 💡 Basic Usage\n"
+        response += f"```tsx\n"
+        response += f"import {{ {hook['name']} }} from '{hook['file_path']}';\n\n"
+        if hook.get('parameters'):
+            params = hook['parameters']
+            if isinstance(params, list) and len(params) > 0:
+                param_names = [p.get('name', 'param') if isinstance(p, dict) else str(p) for p in params[:3]]
+                response += f"const result = {hook['name']}({', '.join(param_names)});\n"
+            else:
+                response += f"const result = {hook['name']}();\n"
+        else:
+            response += f"const result = {hook['name']}();\n"
+        response += "```\n"
+        
+        return response
+    
+    async def list_all_hooks(
+        self,
+        project_id: Optional[str] = None
+    ) -> str:
+        """
+        Lista todos los hooks (con filtros opcionales).
+        
+        Args:
+            project_id: Filtrar por proyecto
+            
+        Returns:
+            Lista formateada en markdown
+        """
+        hooks = await self.db.search_hooks("", project_id)
+        
+        if not hooks:
+            if project_id:
+                return f"❌ No hooks found in project '{project_id}'"
+            return "❌ No hooks found"
+        
+        response = f"🪝 **Hooks** ({len(hooks)} total)\n\n"
+        
+        # Agrupar por proyecto si no está filtrado
+        if not project_id:
+            by_project = group_by_project(hooks)
+            for pid, hook_list in by_project.items():
+                project = await self.db.get_project(pid)
+                response += format_project_header(project, pid) + "\n\n"
+                for hook in hook_list[:20]:
+                    response += f"- **{hook['name']}** (`{hook['file_path']}`)\n"
+                if len(hook_list) > 20:
+                    response += f"- ... and {len(hook_list) - 20} more\n"
+                response += "\n"
+        else:
+            for hook in hooks[:50]:
+                response += f"- **{hook['name']}** (`{hook['file_path']}`)\n"
+            if len(hooks) > 50:
+                response += f"- ... and {len(hooks) - 50} more\n"
+        
+        return response
+    
+    async def get_hook_docs(
+        self,
+        hook_name: str,
+        project_id: str
+    ) -> str:
+        """
+        Obtiene la documentación JSDoc completa de un hook.
+        
+        Args:
+            hook_name: Nombre del hook
+            project_id: ID del proyecto
+            
+        Returns:
+            Documentación JSDoc formateada
+        """
+        hook = await self.db.get_hook_by_name(hook_name, project_id)
+        
+        if not hook:
+            return f"❌ Hook '{hook_name}' not found in project '{project_id}'"
+        
+        jsdoc = hook.get('jsdoc')
+        if not jsdoc:
+            return f"⚠️ Hook '{hook_name}' has no JSDoc documentation"
+        
+        response = f"## 📚 Hook Documentation: {hook['name']}\n\n"
+        response += f"**File:** `{hook['file_path']}`\n"
+        response += f"**Project:** {project_id}\n\n"
+        
+        response += format_jsdoc_section(jsdoc)
         
         return response
     
@@ -488,6 +774,188 @@ class ComponentNavigator:
         except Exception as e:
             return f"❌ Error building hierarchy: {str(e)}"
     
+    async def get_feature_flag_impact(
+        self,
+        flag_name: str,
+        project_id: str
+    ) -> str:
+        """
+        Analiza el impacto de cambiar o eliminar un feature flag.
+        
+        Args:
+            flag_name: Nombre del feature flag
+            project_id: ID del proyecto
+            
+        Returns:
+            Análisis de impacto formateado
+        """
+        flag = await self.db.get_feature_flag_by_name(flag_name, project_id)
+        
+        if not flag:
+            return f"❌ Feature flag '{flag_name}' not found in project '{project_id}'"
+        
+        components = await self.db.get_components_using_flag(flag_name, project_id)
+        hooks = await self.db.get_hooks_using_flag(flag_name, project_id)
+        
+        response = f"## 🚩 Feature Flag Impact Analysis: `{flag_name}`\n\n"
+        response += f"**Project:** {project_id}\n"
+        response += f"**Default Value:** `{flag.get('default_value', 'N/A')}`\n"
+        response += f"**Type:** {flag.get('value_type', 'N/A')}\n\n"
+        
+        total_usage = len(components) + len(hooks)
+        
+        if total_usage == 0:
+            response += "✅ **Safe to remove** - This flag is not used anywhere.\n"
+            return response
+        
+        response += f"⚠️ **Impact Level: {'HIGH' if total_usage > 10 else 'MEDIUM' if total_usage > 5 else 'LOW'}**\n\n"
+        response += f"**Total Usage:** {total_usage} entity(ies)\n\n"
+        
+        if components:
+            response += f"### 📦 Components Affected ({len(components)})\n\n"
+            for comp in components:
+                response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+            response += "\n"
+        
+        if hooks:
+            response += f"### 🪝 Hooks Affected ({len(hooks)})\n\n"
+            for hook in hooks:
+                response += f"- **{hook['name']}** (`{hook['file_path']}`)\n"
+            response += "\n"
+        
+        response += "### 📋 Migration Steps\n\n"
+        response += "1. Review all affected components and hooks\n"
+        response += "2. Understand current flag behavior and default value\n"
+        response += "3. Plan migration strategy:\n"
+        response += "   - If removing: Replace flag checks with default behavior\n"
+        response += "   - If changing default: Update all usages accordingly\n"
+        response += "4. Test each affected component/hook\n"
+        response += "5. Remove flag definition after migration\n"
+        
+        return response
+    
+    async def get_unused_hooks(
+        self,
+        project_id: str
+    ) -> str:
+        """
+        Obtiene hooks que están definidos pero no se usan en ningún componente u otro hook.
+        
+        Args:
+            project_id: ID del proyecto
+            
+        Returns:
+            Lista de hooks no usados
+        """
+        all_hooks = await self.db.get_hooks_by_project(project_id)
+        
+        if not all_hooks:
+            return f"❌ No hooks found in project '{project_id}'"
+        
+        # Obtener todos los componentes y hooks para buscar referencias
+        all_components = await self.db.get_components_by_project(project_id)
+        
+        # Crear set de hooks usados
+        used_hooks = set()
+        
+        # Buscar en componentes
+        for comp in all_components:
+            custom_hooks = comp.get('custom_hooks_used', [])
+            if custom_hooks:
+                used_hooks.update(custom_hooks)
+        
+        # Buscar en otros hooks
+        for hook in all_hooks:
+            custom_hooks = hook.get('custom_hooks_used', [])
+            if custom_hooks:
+                used_hooks.update(custom_hooks)
+        
+        # Filtrar hooks no usados
+        unused_hooks = [
+            hook for hook in all_hooks
+            if hook['name'] not in used_hooks
+        ]
+        
+        if not unused_hooks:
+            return f"✅ All hooks in project '{project_id}' are being used!"
+        
+        response = f"⚠️ **Unused Hooks in '{project_id}':** ({len(unused_hooks)})\n\n"
+        
+        for hook in unused_hooks:
+            response += f"- **{hook['name']}** (`{hook['file_path']}`)"
+            if hook.get('description'):
+                response += f" - {hook['description']}"
+            response += "\n"
+        
+        response += f"\n💡 **Recommendation:** Consider removing these hooks or documenting why they exist.\n"
+        
+        return response
+    
+    async def get_hook_usage_stats(
+        self,
+        project_id: Optional[str] = None
+    ) -> str:
+        """
+        Obtiene estadísticas de uso de hooks.
+        
+        Args:
+            project_id: Filtrar por proyecto (opcional)
+            
+        Returns:
+            Estadísticas formateadas
+        """
+        if project_id:
+            components = await self.db.get_components_by_project(project_id)
+            hooks = await self.db.get_hooks_by_project(project_id)
+        else:
+            components = await self.db.get_all_components()
+            hooks = await self.db.search_hooks("", None)
+        
+        # Contar uso de hooks nativos
+        native_hook_usage = {}
+        for comp in components:
+            native_hooks = comp.get('native_hooks_used', [])
+            for hook in native_hooks:
+                native_hook_usage[hook] = native_hook_usage.get(hook, 0) + 1
+        
+        # Contar uso de hooks custom
+        custom_hook_usage = {}
+        for comp in components:
+            custom_hooks = comp.get('custom_hooks_used', [])
+            for hook in custom_hooks:
+                custom_hook_usage[hook] = custom_hook_usage.get(hook, 0) + 1
+        
+        # También contar en otros hooks
+        for hook in hooks:
+            custom_hooks = hook.get('custom_hooks_used', [])
+            for ch in custom_hooks:
+                custom_hook_usage[ch] = custom_hook_usage.get(ch, 0) + 1
+        
+        response = f"📊 **Hook Usage Statistics**\n\n"
+        
+        if project_id:
+            response += f"**Project:** {project_id}\n\n"
+        
+        # Hooks nativos más usados
+        if native_hook_usage:
+            response += "### 🪝 Most Used Native Hooks\n\n"
+            sorted_native = sorted(native_hook_usage.items(), key=lambda x: x[1], reverse=True)
+            for hook_name, count in sorted_native[:10]:
+                response += f"- `{hook_name}`: {count} component(s)\n"
+            response += "\n"
+        
+        # Hooks custom más usados
+        if custom_hook_usage:
+            response += "### 🎣 Most Used Custom Hooks\n\n"
+            sorted_custom = sorted(custom_hook_usage.items(), key=lambda x: x[1], reverse=True)
+            for hook_name, count in sorted_custom[:10]:
+                response += f"- `{hook_name}`: {count} usage(s)\n"
+            response += "\n"
+        
+        response += f"**Total Components Analyzed:** {len(components)}\n"
+        response += f"**Total Custom Hooks:** {len(hooks)}\n"
+        
+        return response
 
 
 # Función de utilidad para testing
