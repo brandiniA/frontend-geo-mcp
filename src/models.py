@@ -288,8 +288,9 @@ class Hook(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    # Relación
+    # Relaciones
     project = relationship("Project", back_populates="hooks")
+    feature_flags_used = relationship("HookFeatureFlag", back_populates="hook", cascade="all, delete-orphan")
 
     # Índices para búsqueda rápida
     __table_args__ = (
@@ -379,6 +380,7 @@ class FeatureFlag(Base):
     # Relaciones
     project = relationship("Project", back_populates="feature_flags")
     component_usages = relationship("ComponentFeatureFlag", back_populates="feature_flag", cascade="all, delete-orphan")
+    hook_usages = relationship("HookFeatureFlag", back_populates="feature_flag", cascade="all, delete-orphan")
 
     # Índices para búsqueda rápida
     __table_args__ = (
@@ -429,6 +431,38 @@ class ComponentFeatureFlag(Base):
         return {
             'id': self.id,
             'component_id': self.component_id,
+            'feature_flag_id': self.feature_flag_id,
+            'usage_pattern': self.usage_pattern,
+            'created_at': self.created_at,
+        }
+
+
+class HookFeatureFlag(Base):
+    """Modelo SQLAlchemy para relación muchos-a-muchos entre hooks y feature flags."""
+    __tablename__ = "hook_feature_flags"
+
+    id = Column(Integer, primary_key=True)
+    hook_id = Column(Integer, ForeignKey("hooks.id", ondelete="CASCADE"), nullable=False)
+    feature_flag_id = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), nullable=False)
+    usage_pattern = Column(String, nullable=True)  # Patrón detectado: 'features.FLAG_NAME', 'const { FLAG_NAME }', etc.
+    created_at = Column(DateTime, default=func.now())
+
+    # Relaciones
+    hook = relationship("Hook", back_populates="feature_flags_used")
+    feature_flag = relationship("FeatureFlag", back_populates="hook_usages")
+
+    # Índices para búsqueda rápida
+    __table_args__ = (
+        Index('idx_hook_feature_flag_hook', 'hook_id'),
+        Index('idx_hook_feature_flag_flag', 'feature_flag_id'),
+        Index('idx_hook_feature_flag_unique', 'hook_id', 'feature_flag_id', unique=True),
+    )
+
+    def to_dict(self):
+        """Convierte a diccionario."""
+        return {
+            'id': self.id,
+            'hook_id': self.hook_id,
             'feature_flag_id': self.feature_flag_id,
             'usage_pattern': self.usage_pattern,
             'created_at': self.created_at,
