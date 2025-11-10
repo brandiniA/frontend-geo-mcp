@@ -142,6 +142,16 @@ class ProjectIndexer:
                 print(f"   Analizando código de componentes para detectar uso de flags...")
                 await self._detect_feature_flag_usage(repo_path, project_id, flag_names)
             
+            # ============================================
+            # FASE 2.6: Detectar uso de Feature Flags en Hooks
+            # ============================================
+            if flag_names:
+                hooks = await self.db.get_hooks_by_project(project_id)
+                if hooks:
+                    print(f"🔍 Fase 2.6: Detectando uso de {len(flag_names)} feature flags en {len(hooks)} hooks...")
+                    print(f"   Analizando código de hooks para detectar uso de flags...")
+                    await self._detect_feature_flag_usage_in_hooks(repo_path, project_id, flag_names)
+            
             # Limpiar repositorio clonado
             await self._cleanup_repo(repo_path)
             
@@ -345,6 +355,83 @@ class ProjectIndexer:
             print(f"✅ Detectado uso de feature flags en {usage_count} relaciones componente-flag")
         else:
             print(f"   ℹ️  No se encontró uso de feature flags en los componentes")
+    
+    async def _detect_feature_flag_usage_in_hooks(
+        self, repo_path: str, project_id: str, flag_names: List[str]
+    ):
+        """Detecta uso de feature flags en hooks ya indexados."""
+        # Obtener todos los hooks del proyecto desde BD
+        hooks = await self.db.get_hooks_by_project(project_id)
+        
+        if not hooks:
+            print(f"   ⚠️  No hay hooks para analizar")
+            return
+        
+        print(f"   📋 Analizando {len(hooks)} hooks...")
+        
+        # Obtener mapeo de nombres de flags a IDs
+        print(f"   🔑 Obteniendo IDs de {len(flag_names)} feature flags...")
+        flag_id_map = {}
+        for idx, flag_name in enumerate(flag_names, 1):
+            flag = await self.db.get_feature_flag_by_name(flag_name, project_id)
+            if flag:
+                flag_id_map[flag_name] = flag['id']
+            if idx % 20 == 0:
+                print(f"      Procesados {idx}/{len(flag_names)} flags...")
+        
+        print(f"   ✅ {len(flag_id_map)} flags encontrados en BD")
+        
+        # Para cada hook, leer archivo y detectar uso de flags
+        usage_count = 0
+        hooks_analyzed = 0
+        
+        for idx, hook in enumerate(hooks, 1):
+            hook_file = os.path.join(repo_path, hook['file_path'])
+            
+            if not os.path.exists(hook_file):
+                # Intentar buscar el archivo con diferentes variaciones de path
+                file_name = os.path.basename(hook['file_path'])
+                # Buscar recursivamente el archivo por nombre
+                found_file = None
+                for root, dirs, files in os.walk(repo_path):
+                    if file_name in files:
+                        found_file = os.path.join(root, file_name)
+                        break
+                
+                if not found_file:
+                    continue
+                else:
+                    hook_file = found_file
+            
+            content = read_file_safe(hook_file)
+            if not content:
+                continue
+            
+            # Mostrar progreso cada 50 hooks
+            if idx % 50 == 0 or idx == 1:
+                print(f"   🔍 Analizando hook {idx}/{len(hooks)}: {hook['name']}")
+            
+            # Detectar flags usados
+            detected_usages = self.feature_flag_detector.detect_flag_usage(content, flag_names)
+            
+            # Guardar relaciones
+            for usage in detected_usages:
+                flag_name = usage['flag_name']
+                if flag_name in flag_id_map:
+                    await self.db.save_hook_feature_flag_usage(
+                        hook_id=hook['id'],
+                        feature_flag_id=flag_id_map[flag_name],
+                        usage_pattern=usage.get('pattern')
+                    )
+                    usage_count += 1
+            
+            hooks_analyzed += 1
+        
+        print(f"   ✅ Analizados {hooks_analyzed} hooks")
+        if usage_count > 0:
+            print(f"✅ Detectado uso de feature flags en {usage_count} relaciones hook-flag")
+        else:
+            print(f"   ℹ️  No se encontró uso de feature flags en los hooks")
     
     async def _cleanup_repo(self, repo_path: str):
         """Limpia el directorio temporal del repositorio."""
