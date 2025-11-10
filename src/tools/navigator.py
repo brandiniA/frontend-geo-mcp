@@ -147,18 +147,34 @@ class ComponentNavigator:
                 response += f"- ... and {len(comp['imports']) - 10} more\n"
             response += "\n"
         
-        # Feature Flags
+        # Feature Flags - mostrar separados por ubicación (component vs container)
         component_id = comp.get('id')
         if component_id:
             try:
-                flags = await self.db.get_flags_for_component(component_id, project_id)
-                if flags:
-                    response += "### 🚩 Feature Flags\n"
-                    for flag in flags:
+                # Obtener flags del componente
+                component_flags = await self.db.get_flags_for_component_by_location(
+                    component_id, project_id, usage_location='component'
+                )
+                # Obtener flags del container
+                container_flags = await self.db.get_flags_for_component_by_location(
+                    component_id, project_id, usage_location='container'
+                )
+                
+                # Mostrar container_file_path si existe
+                if comp.get('container_file_path'):
+                    response += f"### 🔗 Container\n"
+                    response += f"**Container File:** `{comp['container_file_path']}`\n\n"
+                
+                # Flags usados en el componente
+                if component_flags:
+                    response += "### 🚩 Feature Flags Used in Component\n"
+                    for flag in component_flags:
                         flag_name = flag.get('name', 'Unknown')
                         flag_type = flag.get('value_type', '')
                         default_value = flag.get('default_value')
                         usage_pattern = flag.get('usage_pattern', '')
+                        usage_context = flag.get('usage_context')
+                        usage_type = flag.get('usage_type')
                         
                         flag_line = f"- **`{flag_name}`**"
                         if flag_type:
@@ -167,6 +183,44 @@ class ComponentNavigator:
                             flag_line += f" - Default: `{default_value}`"
                         if usage_pattern:
                             flag_line += f" - Pattern: `{usage_pattern}`"
+                        if usage_context:
+                            flag_line += f" - Context: `{usage_context}`"
+                        if usage_type:
+                            flag_line += f" - Type: `{usage_type}`"
+                        response += flag_line + "\n"
+                    response += "\n"
+                
+                # Flags usados en el container
+                if container_flags:
+                    response += "### 🚩 Feature Flags Used in Container\n"
+                    for flag in container_flags:
+                        flag_name = flag.get('name', 'Unknown')
+                        flag_type = flag.get('value_type', '')
+                        default_value = flag.get('default_value')
+                        usage_pattern = flag.get('usage_pattern', '')
+                        usage_context = flag.get('usage_context')
+                        usage_type = flag.get('usage_type')
+                        combined_with = flag.get('combined_with', [])
+                        logic = flag.get('logic')
+                        container_path = flag.get('container_file_path')
+                        
+                        flag_line = f"- **`{flag_name}`**"
+                        if flag_type:
+                            flag_line += f" (`{flag_type}`)"
+                        if default_value is not None:
+                            flag_line += f" - Default: `{default_value}`"
+                        if usage_pattern:
+                            flag_line += f" - Pattern: `{usage_pattern}`"
+                        if usage_context:
+                            flag_line += f" - Context: `{usage_context}`"
+                        if usage_type:
+                            flag_line += f" - Type: `{usage_type}`"
+                        if combined_with:
+                            combined_str = ", ".join(combined_with)
+                            logic_str = f" ({logic})" if logic else ""
+                            flag_line += f" - Combined with: `{combined_str}`{logic_str}"
+                        if container_path:
+                            flag_line += f" - Container: `{container_path}`"
                         response += flag_line + "\n"
                     response += "\n"
             except Exception as e:
@@ -812,10 +866,45 @@ class ComponentNavigator:
         response += f"**Total Usage:** {total_usage} entity(ies)\n\n"
         
         if components:
-            response += f"### 📦 Components Affected ({len(components)})\n\n"
-            for comp in components:
-                response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
-            response += "\n"
+            # Separar componentes por ubicación (component vs container)
+            component_usage = [c for c in components if c.get('usage_location', 'component') == 'component']
+            container_usage = [c for c in components if c.get('usage_location') == 'container']
+            
+            if component_usage:
+                response += f"### 📦 Components Affected ({len(component_usage)})\n\n"
+                for comp in component_usage:
+                    usage_context = comp.get('usage_context')
+                    usage_type = comp.get('usage_type')
+                    comp_line = f"- **{comp['name']}** (`{comp['file_path']}`)"
+                    if usage_context:
+                        comp_line += f" - Context: `{usage_context}`"
+                    if usage_type:
+                        comp_line += f" - Type: `{usage_type}`"
+                    response += comp_line + "\n"
+                response += "\n"
+            
+            if container_usage:
+                response += f"### 🔗 Container Usage ({len(container_usage)})\n\n"
+                for comp in container_usage:
+                    usage_context = comp.get('usage_context')
+                    usage_type = comp.get('usage_type')
+                    container_path = comp.get('container_file_path')
+                    combined_with = comp.get('combined_with', [])
+                    logic = comp.get('logic')
+                    
+                    comp_line = f"- **{comp['name']}** (`{comp['file_path']}`)"
+                    if container_path:
+                        comp_line += f" - Container: `{container_path}`"
+                    if usage_context:
+                        comp_line += f" - Context: `{usage_context}`"
+                    if usage_type:
+                        comp_line += f" - Type: `{usage_type}`"
+                    if combined_with:
+                        combined_str = ", ".join(combined_with)
+                        logic_str = f" ({logic})" if logic else ""
+                        comp_line += f" - Combined with: `{combined_str}`{logic_str}"
+                    response += comp_line + "\n"
+                response += "\n"
         
         if hooks:
             response += f"### 🪝 Hooks Affected ({len(hooks)})\n\n"

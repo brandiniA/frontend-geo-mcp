@@ -303,7 +303,21 @@ async def get_feature_flag_usage(
             found_any = True
             response += f"### 📦 Components ({len(components)})\n\n"
             for comp in components:
-                response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+                usage_location = comp.get('usage_location', 'component')
+                usage_context = comp.get('usage_context')
+                container_path = comp.get('container_file_path')
+                usage_type = comp.get('usage_type')
+                
+                comp_line = f"- **{comp['name']}** (`{comp['file_path']}`)"
+                if usage_location == 'container':
+                    comp_line += f" - Used in container"
+                    if container_path:
+                        comp_line += f" (`{container_path}`)"
+                if usage_context:
+                    comp_line += f" - Context: `{usage_context}`"
+                if usage_type:
+                    comp_line += f" - Type: `{usage_type}`"
+                response += comp_line + "\n"
             response += "\n"
         elif entity_type == "components":
             response += f"### 📦 Components\n\n"
