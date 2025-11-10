@@ -132,6 +132,14 @@ class DatabaseClient:
     ) -> List[Dict[str, Any]]:
         """Busca componentes que usan un hook específico."""
         return await self.components.search_by_hook(hook_name, project_id)
+    
+    async def update_component_container_file_path(
+        self, component_name: str, project_id: str, container_file_path: str
+    ) -> bool:
+        """Actualiza el container_file_path de un componente."""
+        return await self.components.update_container_file_path(
+            component_name, project_id, container_file_path
+        )
 
     async def search_by_prop(
         self, prop_name: str, project_id: Optional[str] = None
@@ -201,11 +209,19 @@ class DatabaseClient:
         self,
         component_id: int,
         feature_flag_id: int,
-        usage_pattern: Optional[str] = None
+        usage_pattern: Optional[str] = None,
+        usage_location: str = 'component',
+        usage_context: Optional[str] = None,
+        container_file_path: Optional[str] = None,
+        usage_type: Optional[str] = None,
+        combined_with: Optional[List[str]] = None,
+        logic: Optional[str] = None
     ) -> None:
         """Guarda la relación entre un componente y un feature flag."""
         return await self.feature_flags.save_component_flag_usage(
-            component_id, feature_flag_id, usage_pattern
+            component_id, feature_flag_id, usage_pattern,
+            usage_location, usage_context, container_file_path,
+            usage_type, combined_with, logic
         )
 
     async def get_flags_for_component(
@@ -213,6 +229,14 @@ class DatabaseClient:
     ) -> List[Dict[str, Any]]:
         """Obtiene todos los feature flags que usa un componente específico."""
         return await self.feature_flags.get_flags_for_component(component_id, project_id)
+    
+    async def get_flags_for_component_by_location(
+        self, component_id: int, project_id: str, usage_location: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Obtiene feature flags usados por un componente, filtrados por ubicación."""
+        return await self.feature_flags.get_flags_for_component_by_location(
+            component_id, project_id, usage_location
+        )
 
     async def get_flags_for_hook(
         self, hook_id: int, project_id: str

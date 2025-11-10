@@ -486,5 +486,34 @@ class ComponentRepository(BaseRepository):
                 return to_dict_list(components)
 
         return await asyncio.to_thread(_search)
+    
+    async def update_container_file_path(
+        self, component_name: str, project_id: str, container_file_path: str
+    ) -> bool:
+        """
+        Actualiza el container_file_path de un componente.
+        
+        Args:
+            component_name: Nombre del componente
+            project_id: ID del proyecto
+            container_file_path: Ruta del archivo container
+            
+        Returns:
+            True si se actualizó, False si no se encontró el componente
+        """
+        def _update():
+            with db_session(self.SessionLocal) as session:
+                component = session.query(Component).filter(
+                    Component.name == component_name,
+                    Component.project_id == project_id
+                ).first()
+                
+                if component:
+                    component.container_file_path = container_file_path
+                    session.commit()
+                    return True
+                return False
+        
+        return await asyncio.to_thread(_update)
 
 

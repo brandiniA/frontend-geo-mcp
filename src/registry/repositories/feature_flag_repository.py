@@ -169,7 +169,7 @@ class FeatureFlagRepository(BaseRepository):
                 if not flag:
                     return []
                 
-                # Obtener componentes que usan este flag
+                # Obtener componentes que usan este flag con metadata
                 component_flags = session.query(ComponentFeatureFlag).filter(
                     ComponentFeatureFlag.feature_flag_id == flag.id
                 ).all()
@@ -184,7 +184,28 @@ class FeatureFlagRepository(BaseRepository):
                     Component.project_id == project_id
                 ).all()
                 
-                return to_dict_list(components)
+                # Crear mapeo de component_id a metadata
+                metadata_map = {
+                    cf.component_id: {
+                        'usage_location': cf.usage_location or 'component',
+                        'usage_context': cf.usage_context,
+                        'container_file_path': cf.container_file_path,
+                        'usage_type': cf.usage_type,
+                        'combined_with': cf.combined_with or [],
+                        'logic': cf.logic
+                    }
+                    for cf in component_flags
+                }
+                
+                # Convertir componentes a dict y agregar metadata
+                result = []
+                for comp in components:
+                    comp_dict = model_to_dict(comp)
+                    if comp.id in metadata_map:
+                        comp_dict.update(metadata_map[comp.id])
+                    result.append(comp_dict)
+                
+                return result
 
         return await asyncio.to_thread(_get)
 
@@ -229,7 +250,13 @@ class FeatureFlagRepository(BaseRepository):
         self,
         component_id: int,
         feature_flag_id: int,
-        usage_pattern: Optional[str] = None
+        usage_pattern: Optional[str] = None,
+        usage_location: str = 'component',
+        usage_context: Optional[str] = None,
+        container_file_path: Optional[str] = None,
+        usage_type: Optional[str] = None,
+        combined_with: Optional[List[str]] = None,
+        logic: Optional[str] = None
     ) -> None:
         """
         Guarda la relación entre un componente y un feature flag.
@@ -238,21 +265,34 @@ class FeatureFlagRepository(BaseRepository):
             component_id: ID del componente
             feature_flag_id: ID del feature flag
             usage_pattern: Patrón de uso detectado (opcional)
+            usage_location: 'component' | 'container' - Dónde se usa el flag
+            usage_context: Contexto de uso (mapStateToProps, mapDispatchToProps, etc.)
+            container_file_path: Ruta del archivo container (solo si usage_location='container')
+            usage_type: Tipo de uso (conditional_logic, array_construction, etc.)
+            combined_with: Lista de otros flags si se combinan
+            logic: 'AND' | 'OR' si se combinan flags
         """
         def _save():
             with db_session(self.SessionLocal) as session:
                 try:
-                    # Verificar si ya existe
+                    # Verificar si ya existe (considerando también usage_location para permitir duplicados)
                     existing = session.query(ComponentFeatureFlag).filter(
                         ComponentFeatureFlag.component_id == component_id,
-                        ComponentFeatureFlag.feature_flag_id == feature_flag_id
+                        ComponentFeatureFlag.feature_flag_id == feature_flag_id,
+                        ComponentFeatureFlag.usage_location == usage_location
                     ).first()
                     
                     if not existing:
                         component_flag = ComponentFeatureFlag(
                             component_id=component_id,
                             feature_flag_id=feature_flag_id,
-                            usage_pattern=usage_pattern
+                            usage_pattern=usage_pattern,
+                            usage_location=usage_location,
+                            usage_context=usage_context,
+                            container_file_path=container_file_path,
+                            usage_type=usage_type,
+                            combined_with=combined_with,
+                            logic=logic
                         )
                         session.add(component_flag)
                         session.commit()
@@ -302,6 +342,71 @@ class FeatureFlagRepository(BaseRepository):
                     if cf.feature_flag_id in flag_dict:
                         flag_data = model_to_dict(flag_dict[cf.feature_flag_id])
                         flag_data['usage_pattern'] = cf.usage_pattern
+                        result.append(flag_data)
+                
+                return result
+
+        return await asyncio.to_thread(_get)
+    
+    async def get_flags_for_component_by_location(
+        self, component_id: int, project_id: str, usage_location: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene feature flags usados por un componente, filtrados por ubicación.
+        
+        Args:
+            component_id: ID del componente
+            project_id: ID del proyecto
+            usage_location: Filtrar por ubicación ('component' | 'container' | None para todos)
+            
+        Returns:
+            Lista de feature flags con metadata completa
+        """
+        def _get():
+            with db_session(self.SessionLocal) as session:
+                # Obtener relaciones componente-flag
+                query = session.query(ComponentFeatureFlag).filter(
+                    ComponentFeatureFlag.component_id == component_id
+                )
+                
+                if usage_location:
+                    # Si buscamos 'component', también incluir registros con usage_location NULL
+                    # (para compatibilidad con datos antiguos)
+                    if usage_location == 'component':
+                        query = query.filter(
+                            (ComponentFeatureFlag.usage_location == usage_location) |
+                            (ComponentFeatureFlag.usage_location.is_(None))
+                        )
+                    else:
+                        query = query.filter(ComponentFeatureFlag.usage_location == usage_location)
+                
+                component_flags = query.all()
+                
+                if not component_flags:
+                    return []
+                
+                # Obtener los IDs de los flags
+                flag_ids = [cf.feature_flag_id for cf in component_flags]
+                
+                # Obtener los flags con sus detalles
+                flags = session.query(FeatureFlag).filter(
+                    FeatureFlag.id.in_(flag_ids),
+                    FeatureFlag.project_id == project_id
+                ).all()
+                
+                # Convertir a diccionarios y agregar metadata completa
+                result = []
+                flag_dict = {f.id: f for f in flags}
+                for cf in component_flags:
+                    if cf.feature_flag_id in flag_dict:
+                        flag_data = model_to_dict(flag_dict[cf.feature_flag_id])
+                        flag_data['usage_pattern'] = cf.usage_pattern
+                        flag_data['usage_location'] = cf.usage_location or 'component'
+                        flag_data['usage_context'] = cf.usage_context
+                        flag_data['container_file_path'] = cf.container_file_path
+                        flag_data['usage_type'] = cf.usage_type
+                        flag_data['combined_with'] = cf.combined_with or []
+                        flag_data['logic'] = cf.logic
                         result.append(flag_data)
                 
                 return result
