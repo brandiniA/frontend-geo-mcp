@@ -191,6 +191,7 @@ class Project(Base):
     components = relationship("Component", back_populates="project", cascade="all, delete-orphan")
     hooks = relationship("Hook", back_populates="project", cascade="all, delete-orphan")
     feature_flags = relationship("FeatureFlag", back_populates="project", cascade="all, delete-orphan")
+    barrel_exports = relationship("BarrelExport", back_populates="project", cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convierte a diccionario."""
@@ -482,4 +483,75 @@ class HookFeatureFlag(Base):
             'feature_flag_id': self.feature_flag_id,
             'usage_pattern': self.usage_pattern,
             'created_at': self.created_at,
+        }
+
+
+class BarrelExport(Base):
+    """
+    Modelo para mapear directorios con index.js a componentes exportados.
+    
+    Un barrel export es un patrón común en JavaScript donde un directorio
+    contiene un index.js que re-exporta componentes de otros archivos del mismo directorio.
+    Ejemplo: components/Checkout/index.js que exporta CheckoutContainer
+    
+    Esto permite resolver imports como:
+    import Checkout from 'components/Checkout' 
+    → index.js → CheckoutContainer.js → Checkout.js
+    """
+    __tablename__ = "barrel_exports"
+    
+    id = Column(Integer, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Directorio que contiene el index.js (normalizado)
+    directory_path = Column(String, nullable=False)
+    
+    # Ruta completa al archivo index.js
+    index_file_path = Column(String, nullable=False)
+    
+    # Componente al que apunta el barrel export
+    exported_component_id = Column(Integer, ForeignKey("components.id", ondelete="CASCADE"), nullable=True)
+    
+    # Nombre del componente/export (ej: 'CheckoutContainer')
+    exported_name = Column(String, nullable=True)
+    
+    # Ruta del archivo fuente que contiene el export (ej: './CheckoutContainer')
+    source_file_path = Column(String, nullable=False)
+    
+    # Si el archivo exportado es un container (wraps otro componente)
+    is_container = Column(Boolean, default=False)
+    
+    # Notas adicionales sobre el barrel export
+    notes = Column(String, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    project = relationship("Project", back_populates="barrel_exports")
+    component = relationship("Component")
+    
+    # Índices para búsqueda rápida
+    __table_args__ = (
+        Index('idx_barrel_project', 'project_id'),
+        Index('idx_barrel_directory', 'directory_path'),
+        Index('idx_barrel_unique', 'project_id', 'directory_path', unique=True),
+        Index('idx_barrel_component', 'exported_component_id'),
+    )
+    
+    def to_dict(self):
+        """Convierte a diccionario."""
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'directory_path': self.directory_path,
+            'index_file_path': self.index_file_path,
+            'exported_component_id': self.exported_component_id,
+            'exported_name': self.exported_name,
+            'source_file_path': self.source_file_path,
+            'is_container': self.is_container,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

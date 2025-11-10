@@ -9,6 +9,7 @@ from .component_repository import ComponentRepository
 from .hook_repository import HookRepository
 from .dependency_repository import DependencyRepository
 from .feature_flag_repository import FeatureFlagRepository
+from .barrel_export_repository import BarrelExportRepository
 from . import utils
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     'HookRepository',
     'DependencyRepository',
     'FeatureFlagRepository',
+    'BarrelExportRepository',
     'utils',
 ]
 
