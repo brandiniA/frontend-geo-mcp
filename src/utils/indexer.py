@@ -6,7 +6,7 @@ Clona repositorios, escanea archivos y extrae componentes.
 import os
 import shutil
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 import git
 
 # Importar con fallback para diferentes contextos de ejecución
@@ -151,6 +151,12 @@ class ProjectIndexer:
                     print(f"🔍 Fase 2.6: Detectando uso de {len(flag_names)} feature flags en {len(hooks)} hooks...")
                     print(f"   Analizando código de hooks para detectar uso de flags...")
                     await self._detect_feature_flag_usage_in_hooks(repo_path, project_id, flag_names)
+            
+            # ============================================
+            # FASE 2.7: Detectar Containers y Feature Flags en Containers
+            # ============================================
+            print(f"🔍 Fase 2.7: Detectando containers de Redux y feature flags en containers...")
+            await self._detect_containers_and_flags(repo_path, project_id, flag_names if flag_names else [])
             
             # Limpiar repositorio clonado
             await self._cleanup_repo(repo_path)
@@ -344,7 +350,8 @@ class ProjectIndexer:
                     await self.db.save_component_feature_flag_usage(
                         component_id=component['id'],
                         feature_flag_id=flag_id_map[flag_name],
-                        usage_pattern=usage.get('pattern')
+                        usage_pattern=usage.get('pattern'),
+                        usage_location='component'  # Explícitamente marcar como uso en componente
                     )
                     usage_count += 1
             
@@ -432,6 +439,143 @@ class ProjectIndexer:
             print(f"✅ Detectado uso de feature flags en {usage_count} relaciones hook-flag")
         else:
             print(f"   ℹ️  No se encontró uso de feature flags en los hooks")
+    
+    async def _detect_containers_and_flags(
+        self, repo_path: str, project_id: str, flag_names: List[str]
+    ):
+        """
+        Detecta containers de Redux, actualiza componentes con container_file_path,
+        y detecta feature flags usados en containers asociándolos al componente presentacional.
+        """
+        # scan_files y read_file_safe ya están importados al inicio del archivo
+        
+        def is_component_file(filename: str) -> bool:
+            """Filtro para archivos de componentes."""
+            return filename.endswith(REACT_EXTENSIONS)
+        
+        # Escanear todos los archivos para detectar containers
+        print(f"   📋 Escaneando archivos para detectar containers...")
+        ignore_dirs = BASE_IGNORE_DIRS | COMPONENT_IGNORE_DIRS
+        
+        containers_found = []
+        files_scanned = 0
+        
+        def process_file_for_containers(content: str, relative_path: str) -> List[Dict]:
+            """Procesa un archivo para detectar si es container."""
+            container_info = self.parser._detect_redox_container(content, relative_path)
+            if container_info:
+                return [container_info]
+            return []
+        
+        def progress_callback(count: int, current_file: str) -> None:
+            """Callback para mostrar progreso."""
+            nonlocal files_scanned
+            files_scanned = count
+            if count % 50 == 0:
+                print(f"   📄 Escaneados {count} archivos... (último: {current_file})")
+        
+        # Escanear archivos
+        all_results = scan_files(
+            repo_path=repo_path,
+            file_filter=is_component_file,
+            ignore_dirs=ignore_dirs,
+            process_file=process_file_for_containers,
+            progress_callback=progress_callback
+        )
+        
+        # all_results ya es una lista de dicts (los containers encontrados)
+        containers_found = all_results
+        
+        if not containers_found:
+            print(f"   ℹ️  No se encontraron containers de Redux")
+            return
+        
+        print(f"   ✅ Encontrados {len(containers_found)} containers")
+        
+        # Obtener mapeo de nombres de flags a IDs si hay flags
+        flag_id_map = {}
+        if flag_names:
+            print(f"   🔑 Obteniendo IDs de {len(flag_names)} feature flags...")
+            for idx, flag_name in enumerate(flag_names, 1):
+                flag = await self.db.get_feature_flag_by_name(flag_name, project_id)
+                if flag:
+                    flag_id_map[flag_name] = flag['id']
+                if idx % 20 == 0:
+                    print(f"      Procesados {idx}/{len(flag_names)} flags...")
+            print(f"   ✅ {len(flag_id_map)} flags encontrados en BD")
+        
+        # Procesar cada container
+        containers_processed = 0
+        components_updated = 0
+        flags_detected = 0
+        
+        for idx, container_info in enumerate(containers_found, 1):
+            container_file_path = container_info['file_path']
+            wrapped_component_name = container_info['wrapped_component']
+            
+            # Buscar componente presentacional en BD
+            components = await self.db.search_components(wrapped_component_name, project_id)
+            
+            # Buscar coincidencia exacta por nombre
+            component = None
+            for comp in components:
+                if comp.get('name') == wrapped_component_name:
+                    component = comp
+                    break
+            
+            if not component:
+                # Componente no encontrado, puede que no esté indexado aún
+                if idx % 10 == 0:
+                    print(f"   ⚠️  Container {idx}/{len(containers_found)}: Componente '{wrapped_component_name}' no encontrado en BD")
+                continue
+            
+            # Actualizar componente con container_file_path
+            updated = await self.db.update_component_container_file_path(
+                wrapped_component_name, project_id, container_file_path
+            )
+            if updated:
+                components_updated += 1
+            
+            # Detectar feature flags en el container
+            if flag_names and flag_id_map:
+                container_full_path = os.path.join(repo_path, container_file_path)
+                if os.path.exists(container_full_path):
+                    content = read_file_safe(container_full_path)
+                    if content:
+                        # Detectar flags usados
+                        detected_usages = self.feature_flag_detector.detect_flag_usage(content, flag_names)
+                        
+                        # Para cada flag detectado, extraer metadata de contexto
+                        for usage in detected_usages:
+                            flag_name = usage['flag_name']
+                            if flag_name in flag_id_map:
+                                # Extraer metadata de contexto
+                                context_metadata = self.parser._extract_usage_context(content, flag_name)
+                                
+                                # Guardar relación con metadata rica
+                                await self.db.save_component_feature_flag_usage(
+                                    component_id=component['id'],
+                                    feature_flag_id=flag_id_map[flag_name],
+                                    usage_pattern=usage.get('pattern'),
+                                    usage_location='container',
+                                    usage_context=context_metadata.get('usage_context'),
+                                    container_file_path=container_file_path,
+                                    usage_type=context_metadata.get('usage_type'),
+                                    combined_with=context_metadata.get('combined_with'),
+                                    logic=context_metadata.get('logic')
+                                )
+                                flags_detected += 1
+            
+            containers_processed += 1
+            if idx % 10 == 0:
+                print(f"   🔍 Procesados {idx}/{len(containers_found)} containers...")
+        
+        print(f"   ✅ Procesados {containers_processed} containers")
+        print(f"   ✅ Actualizados {components_updated} componentes con container_file_path")
+        if flags_detected > 0:
+            print(f"✅ Detectado uso de feature flags en {flags_detected} relaciones container-flag")
+        else:
+            print(f"   ℹ️  No se encontró uso de feature flags en los containers")
     
     async def _cleanup_repo(self, repo_path: str):
         """Limpia el directorio temporal del repositorio."""
