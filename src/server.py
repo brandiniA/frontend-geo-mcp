@@ -200,31 +200,135 @@ async def get_component_hierarchy(
 
 
 # ============================================
+# 🪝 HOOK TOOLS
+# ============================================
+
+@mcp.tool
+async def find_hook(
+    query: Annotated[str, "Hook name to search"],
+    project_id: Annotated[Optional[str], "Filter by specific project"] = None
+) -> str:
+    """
+    Find React hooks by name across all indexed projects.
+    Returns location, parameters, return type, and usage examples.
+    
+    Example: find_hook("useAuth")
+    Example: find_hook("usePricing", project_id="platform-funnel")
+    """
+    return await navigator.find_hook(query, project_id)
+
+
+@mcp.tool
+async def get_hook_details(
+    hook_name: Annotated[str, "Hook name"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get detailed information about a specific hook.
+    Includes parameters, return type, hooks used, dependencies, feature flags, and usage examples.
+    
+    Example: get_hook_details("useAuth", "main-app")
+    Example: get_hook_details("usePricingBeforeCheckout", "platform-funnel")
+    """
+    return await navigator.get_hook_details(hook_name, project_id)
+
+
+@mcp.tool
+async def list_hooks(
+    project_id: Annotated[Optional[str], "Filter by project"] = None
+) -> str:
+    """
+    List all hooks in the catalog.
+    Optionally filter by project.
+    
+    Example: list_hooks()
+    Example: list_hooks(project_id="platform-funnel")
+    """
+    return await navigator.list_all_hooks(project_id)
+
+
+@mcp.tool
+async def get_hook_docs(
+    hook_name: Annotated[str, "Hook name"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get the complete JSDoc documentation for a hook.
+    Includes parameters, return types, examples, author, version, deprecation status.
+    
+    Example: get_hook_docs("useAuth", "main-app")
+    Example: get_hook_docs("usePricingBeforeCheckout", "platform-funnel")
+    """
+    return await navigator.get_hook_docs(hook_name, project_id)
+
+
+# ============================================
 # 🚩 FEATURE FLAG TOOLS
 # ============================================
 
 @mcp.tool
-async def search_by_feature_flag(
+async def get_feature_flag_usage(
     flag_name: Annotated[str, "Feature flag name to search"],
-    project_id: Annotated[Optional[str], "Filter by specific project"] = None
+    project_id: Annotated[str, "Project ID"],
+    entity_type: Annotated[str, "Type of entities to search: 'components', 'hooks', or 'all'"] = "all"
 ) -> str:
     """
-    Find all components that use a specific feature flag.
+    Find all entities (components, hooks, or both) that use a specific feature flag.
     
-    Example: search_by_feature_flag("SHOW_PURCHASE_FOOTER")
-    Example: search_by_feature_flag("SHOW_PURCHASE_FOOTER", project_id="main-app")
+    Args:
+        flag_name: Name of the feature flag to search
+        project_id: Project ID where to search
+        entity_type: Type of entities to search:
+            - 'components': Search only in components
+            - 'hooks': Search only in hooks
+            - 'all': Search in both components and hooks (default)
+    
+    Example: get_feature_flag_usage("SHOW_PURCHASE_FOOTER", "platform-funnel", "all")
+    Example: get_feature_flag_usage("USE_NEW_CARD_INPUT", "platform-funnel", "components")
+    Example: get_feature_flag_usage("PRICING_BEFORE_CHECKOUT", "platform-funnel", "hooks")
     """
-    if not project_id:
-        return "❌ project_id is required for feature flag search"
+    if entity_type not in ["components", "hooks", "all"]:
+        return f"❌ Invalid entity_type '{entity_type}'. Must be 'components', 'hooks', or 'all'"
     
-    components = await db_client.get_components_using_flag(flag_name, project_id)
+    response = f"🚩 **Feature Flag Usage: `{flag_name}`**\n\n"
+    response += f"**Project:** {project_id}\n"
+    response += f"**Search scope:** {entity_type}\n\n"
     
-    if not components:
-        return f"🔍 No components found using feature flag '{flag_name}' in project '{project_id}'"
+    found_any = False
     
-    response = f"🚩 **Components using '{flag_name}':**\n\n"
-    for comp in components:
-        response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+    # Search in components
+    if entity_type in ["components", "all"]:
+        components = await db_client.get_components_using_flag(flag_name, project_id)
+        if components:
+            found_any = True
+            response += f"### 📦 Components ({len(components)})\n\n"
+            for comp in components:
+                response += f"- **{comp['name']}** (`{comp['file_path']}`)\n"
+            response += "\n"
+        elif entity_type == "components":
+            response += f"### 📦 Components\n\n"
+            response += f"⚠️ No components found using this feature flag.\n\n"
+    
+    # Search in hooks
+    if entity_type in ["hooks", "all"]:
+        hooks = await db_client.get_hooks_using_flag(flag_name, project_id)
+        if hooks:
+            found_any = True
+            response += f"### 🪝 Hooks ({len(hooks)})\n\n"
+            for hook in hooks:
+                response += f"- **{hook['name']}** (`{hook['file_path']}`)\n"
+            response += "\n"
+        elif entity_type == "hooks":
+            response += f"### 🪝 Hooks\n\n"
+            response += f"⚠️ No hooks found using this feature flag.\n\n"
+    
+    if not found_any:
+        if entity_type == "all":
+            return f"🔍 No components or hooks found using feature flag '{flag_name}' in project '{project_id}'"
+        elif entity_type == "components":
+            return f"🔍 No components found using feature flag '{flag_name}' in project '{project_id}'"
+        else:
+            return f"🔍 No hooks found using feature flag '{flag_name}' in project '{project_id}'"
     
     return response
 
@@ -297,12 +401,22 @@ async def get_feature_flag_details(
     
     # Obtener componentes que usan este flag
     components = await db_client.get_components_using_flag(flag_name, project_id)
-    if components:
-        response += f"\n**Used in {len(components)} component(s):**\n"
-        for comp in components:
-            response += f"- {comp['name']} (`{comp['file_path']}`)\n"
+    hooks = await db_client.get_hooks_using_flag(flag_name, project_id)
+    
+    if components or hooks:
+        response += "\n**Usage:**\n"
+        
+        if components:
+            response += f"\n📦 **Components ({len(components)}):**\n"
+            for comp in components:
+                response += f"- {comp['name']} (`{comp['file_path']}`)\n"
+        
+        if hooks:
+            response += f"\n🪝 **Hooks ({len(hooks)}):**\n"
+            for hook in hooks:
+                response += f"- {hook['name']} (`{hook['file_path']}`)\n"
     else:
-        response += "\n⚠️ **Not used in any component**\n"
+        response += "\n⚠️ **Not used in any component or hook**\n"
     
     return response
 
@@ -312,7 +426,7 @@ async def get_unused_feature_flags(
     project_id: Annotated[str, "Project ID"]
 ) -> str:
     """
-    Get feature flags that are defined but not used in any component.
+    Get feature flags that are defined but not used in any component or hook.
     
     Example: get_unused_feature_flags("main-app")
     """
@@ -329,6 +443,46 @@ async def get_unused_feature_flags(
         response += "\n"
     
     return response
+
+
+@mcp.tool
+async def get_feature_flag_impact(
+    flag_name: Annotated[str, "Feature flag name"],
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Analyze the impact of changing or removing a feature flag.
+    Shows all affected components and hooks, and provides migration steps.
+    
+    Example: get_feature_flag_impact("SHOW_PURCHASE_FOOTER", "platform-funnel")
+    """
+    return await navigator.get_feature_flag_impact(flag_name, project_id)
+
+
+@mcp.tool
+async def get_unused_hooks(
+    project_id: Annotated[str, "Project ID"]
+) -> str:
+    """
+    Get hooks that are defined but not used in any component or other hook.
+    
+    Example: get_unused_hooks("platform-funnel")
+    """
+    return await navigator.get_unused_hooks(project_id)
+
+
+@mcp.tool
+async def get_hook_usage_stats(
+    project_id: Annotated[Optional[str], "Filter by project"] = None
+) -> str:
+    """
+    Get statistics about hook usage.
+    Shows most used native hooks and custom hooks.
+    
+    Example: get_hook_usage_stats()
+    Example: get_hook_usage_stats(project_id="platform-funnel")
+    """
+    return await navigator.get_hook_usage_stats(project_id)
 
 
 @mcp.tool
@@ -451,6 +605,39 @@ async def list_projects() -> str:
 # ============================================
 # 📊 STATS TOOLS
 # ============================================
+
+@mcp.tool
+async def list_prompts() -> str:
+    """
+    List all available MCP prompts in this server.
+    Useful for verifying that prompts are correctly exposed.
+    
+    Example: list_prompts()
+    """
+    prompts = await mcp.get_prompts()
+    
+    if not prompts:
+        return "❌ No prompts found in this MCP server"
+    
+    response = f"🎯 **Available MCP Prompts ({len(prompts)}):**\n\n"
+    
+    for name, prompt_obj in prompts.items():
+        response += f"### {prompt_obj.name}\n"
+        response += f"**Description:** {prompt_obj.description}\n"
+        
+        if prompt_obj.arguments:
+            response += f"**Arguments ({len(prompt_obj.arguments)}):**\n"
+            for arg in prompt_obj.arguments:
+                required = "✅ Required" if arg.required else "⚪ Optional"
+                description = arg.description.split('\n')[0]  # Solo primera línea
+                response += f"- `{arg.name}` ({required}): {description}\n"
+        else:
+            response += "**Arguments:** None\n"
+        
+        response += "\n"
+    
+    return response
+
 
 @mcp.tool
 async def get_stats() -> str:
